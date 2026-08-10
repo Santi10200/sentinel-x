@@ -1,0 +1,208 @@
+"""
+Persistencia SQLite para Sentinel-X.
+
+Todas las escrituras pasan por una única conexión protegida por lock,
+porque SQLite serializa escritores y los hilos de captura escriben
+concurrentemente. Se usa WAL para no bloquear lecturas del dashboard
+mientras un hilo escribe.
+"""
+
+import sqlite3
+import threading
+import time
+import os
+
+from core.config import CONFIG
+from core.logger import get_logger
+
+logger = get_logger("database")
+
+_lock_db = threading.Lock()
+_conn: sqlite3.Connection | None = None
+
+
+def _get_conn() -> sqlite3.Connection:
+    global _conn
+    if _conn is None:
+        directorio_db = os.path.dirname(CONFIG["db_path"])
+        if directorio_db:
+            os.makedirs(directorio_db, exist_ok=True)
+        _conn = sqlite3.connect(CONFIG["db_path"], check_same_thread=False)
+        _conn.execute("PRAGMA journal_mode=WAL;")
+        _conn.execute("PRAGMA synchronous=NORMAL;")
+    return _conn
+
+
+def inicializar_db() -> None:
+    """Crea las tablas si no existen. Llamar una vez al arranque."""
+    with _lock_db:
+        conn = _get_conn()
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS flujos_tls (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL NOT NULL,
+                origen TEXT, destino TEXT, puerto INTEGER,
+                sni TEXT, ja3 TEXT, ja3_conocido TEXT,
+                tamano_bytes INTEGER
+            );
+            CREATE INDEX IF NOT EXISTS idx_flujos_ts ON flujos_tls(timestamp);
+            CREATE INDEX IF NOT EXISTS idx_flujos_destino ON flujos_tls(destino);
+
+            CREATE TABLE IF NOT EXISTS alertas_ids (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL NOT NULL,
+                fecha_hora TEXT, ip_origen TEXT, ip_destino TEXT,
+                gravedad INTEGER, categoria TEXT, firma TEXT,
+                mitre_tactica TEXT, mitre_tecnica TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_alertas_ts ON alertas_ids(timestamp);
+
+            CREATE TABLE IF NOT EXISTS incidentes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL NOT NULL,
+                tipo TEXT, severidad TEXT, ip_principal TEXT,
+                descripcion TEXT, mitre_tecnicas TEXT, fuentes TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_incidentes_ts ON incidentes(timestamp);
+
+            CREATE TABLE IF NOT EXISTS inventario_red (
+                ip TEXT PRIMARY KEY,
+                mac TEXT, fabricante TEXT, tipo TEXT,
+                hostname TEXT, fuente_hostname TEXT,
+                os_detectado TEXT, puertos_abiertos TEXT, servicios TEXT,
+                primera_vez REAL, ultima_vez REAL
+            );
+
+            CREATE TABLE IF NOT EXISTS ti_hits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL NOT NULL,
+                indicador TEXT, tipo_indicador TEXT,
+                fuente TEXT, contexto TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_ti_ts ON ti_hits(timestamp);
+
+            CREATE TABLE IF NOT EXISTS redes_wifi (
+                bssid TEXT PRIMARY KEY,
+                ssid TEXT, cifrado TEXT, pmf TEXT,
+                akm_suites TEXT, cipher_suites TEXT,
+                primera_vez REAL, ultima_vez REAL
+            );
+        """)
+        conn.commit()
+    logger.info("Base de datos inicializada en %s", CONFIG["db_path"])
+
+
+def insertar(tabla: str, registro: dict) -> None:
+    """Inserta un registro en la tabla dada. Thread-safe."""
+    if not registro:
+        return
+    tablas_permitidas = {"flujos_tls", "alertas_ids", "incidentes", "ti_hits"}
+    if tabla not in tablas_permitidas:
+        raise ValueError(f"Tabla no permitida: {tabla}")
+    columnas = ", ".join(registro.keys())
+    placeholders = ", ".join("?" for _ in registro)
+    sql = f"INSERT INTO {tabla} ({columnas}) VALUES ({placeholders})"
+    with _lock_db:
+        try:
+            conn = _get_conn()
+            conn.execute(sql, list(registro.values()))
+            conn.commit()
+        except sqlite3.Error as exc:
+            logger.error("Error insertando en %s: %s", tabla, exc)
+
+
+def upsert_red_wifi(red: dict) -> None:
+    """Guarda el último estado de seguridad observado para un BSSID."""
+    ahora = time.time()
+    with _lock_db:
+        try:
+            conn = _get_conn()
+            conn.execute("""
+                INSERT INTO redes_wifi
+                    (bssid, ssid, cifrado, pmf, akm_suites, cipher_suites, primera_vez, ultima_vez)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(bssid) DO UPDATE SET
+                    ssid=excluded.ssid, cifrado=excluded.cifrado, pmf=excluded.pmf,
+                    akm_suites=excluded.akm_suites, cipher_suites=excluded.cipher_suites,
+                    ultima_vez=excluded.ultima_vez
+            """, (
+                red["bssid"], red.get("ssid", ""), red.get("cifrado", ""), red.get("pmf", ""),
+                ", ".join(red.get("akm_suites", [])), ", ".join(red.get("cipher_suites", [])),
+                ahora, ahora,
+            ))
+            conn.commit()
+        except sqlite3.Error as exc:
+            logger.error("Error guardando red Wi-Fi: %s", exc)
+
+
+def upsert_inventario(perfil: dict) -> None:
+    """Inserta o actualiza un dispositivo en el inventario, preservando 'primera_vez'."""
+    ahora = time.time()
+    with _lock_db:
+        try:
+            conn = _get_conn()
+            existente = conn.execute(
+                "SELECT primera_vez FROM inventario_red WHERE ip = ?", (perfil["ip"],)
+            ).fetchone()
+            primera_vez = existente[0] if existente else ahora
+
+            conn.execute("""
+                INSERT INTO inventario_red
+                    (ip, mac, fabricante, tipo, hostname, fuente_hostname,
+                     os_detectado, puertos_abiertos, servicios, primera_vez, ultima_vez)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(ip) DO UPDATE SET
+                    mac=excluded.mac, fabricante=excluded.fabricante, tipo=excluded.tipo,
+                    hostname=excluded.hostname, fuente_hostname=excluded.fuente_hostname,
+                    os_detectado=excluded.os_detectado, puertos_abiertos=excluded.puertos_abiertos,
+                    servicios=excluded.servicios, ultima_vez=excluded.ultima_vez
+            """, (
+                perfil["ip"], perfil.get("mac"), perfil.get("fabricante"),
+                perfil.get("tipo"), perfil.get("hostname"), perfil.get("fuente_hostname"),
+                perfil.get("os_detectado"), perfil.get("puertos_abiertos"),
+                perfil.get("servicios"), primera_vez, ahora,
+            ))
+            conn.commit()
+        except sqlite3.Error as exc:
+            logger.error("Error en upsert_inventario: %s", exc)
+
+
+def consultar(sql: str, params: tuple = ()) -> list[dict]:
+    """Ejecuta un SELECT y devuelve lista de dicts."""
+    with _lock_db:
+        try:
+            conn = _get_conn()
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(sql, params)
+            filas = [dict(r) for r in cursor.fetchall()]
+            conn.row_factory = None
+            return filas
+        except sqlite3.Error as exc:
+            logger.error("Error en consulta: %s", exc)
+            return []
+
+
+def rotar_si_excede_limite() -> None:
+    """Borra registros más viejos que la retención configurada, o si el archivo excede el tamaño máximo."""
+    retencion_seg = CONFIG["db_retencion_dias"] * 86400
+    limite_ts = time.time() - retencion_seg
+
+    tamano_mb = 0.0
+    if os.path.exists(CONFIG["db_path"]):
+        tamano_mb = os.path.getsize(CONFIG["db_path"]) / (1024 * 1024)
+
+    if tamano_mb < CONFIG["db_max_tamano_mb"]:
+        # Aún rotamos por antigüedad, aunque no se haya superado el tamaño
+        pass
+
+    with _lock_db:
+        try:
+            conn = _get_conn()
+            for tabla in ("flujos_tls", "alertas_ids", "incidentes", "ti_hits"):
+                conn.execute(f"DELETE FROM {tabla} WHERE timestamp < ?", (limite_ts,))
+            conn.execute("VACUUM;")
+            conn.commit()
+            logger.info("Rotación de DB completada (retención: %d días, tamaño previo: %.1f MB)",
+                        CONFIG["db_retencion_dias"], tamano_mb)
+        except sqlite3.Error as exc:
+            logger.error("Error rotando DB: %s", exc)

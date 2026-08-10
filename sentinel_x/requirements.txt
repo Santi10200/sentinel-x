@@ -1,0 +1,9 @@
+streamlit>=1.35
+pandas>=2.0
+scapy>=2.5
+scikit-learn>=1.3
+joblib>=1.3
+plotly>=5.20
+
+# Suricata y Zeek no son paquetes pip: se instalan con apt en Kali.
+#   sudo apt install suricata zeek nmap
