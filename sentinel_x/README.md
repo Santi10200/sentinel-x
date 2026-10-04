@@ -77,7 +77,10 @@ sentinel_x/
 │   ├── beaconing.py                 # Detección C2
 │   ├── lateral_movement.py           # Fan-out + puertos de riesgo
 │   ├── ml_baseline.py                 # IsolationForest por host
-│   └── correlation_engine.py           # Motor de incidentes
+│   ├── correlation_engine.py           # Motor de incidentes
+│   └── face_verify.py                  # Verificación facial 1:1 (opcional)
+├── tests/
+│   └── test_face_verify.py
 └── ui/
     ├── helpers.py
     ├── tab_incidentes.py        # Pestaña 1: vista correlacionada
@@ -102,3 +105,36 @@ sentinel_x/
   lookups O(1) contra sets en memoria.
 - **MITRE ATT&CK con fallback offline**: si no hay red al arrancar, usa
   una tabla local de las ~20 técnicas más relevantes para NDR.
+
+## Módulo opcional: verificación facial 1:1
+
+Laboratorio para estudiar cómo funciona (y cómo falla) la biometría facial.
+Compara **dos imágenes locales** y responde si son de la misma persona; no
+busca ni identifica a nadie contra fuentes externas. Usa solo fotos propias,
+de personas que han dado su consentimiento o datasets académicos con licencia
+(p. ej. LFW).
+
+```bash
+pip install deepface tf-keras --break-system-packages
+
+# ¿Son la misma persona?
+python -m modules.face_verify verificar foto_a.jpg foto_b.jpg
+
+# Evaluar el sistema: FAR / FRR por umbral y EER
+#   pares.csv -> img1,img2,misma_persona (1/0)
+python -m modules.face_verify evaluar pares.csv --salida far_frr.csv
+
+# Otro modelo
+python -m modules.face_verify --modelo Facenet512 verificar a.jpg b.jpg
+```
+
+- **FAR** (False Accept Rate): impostores aceptados como genuinos.
+- **FRR** (False Reject Rate): genuinos rechazados.
+- **EER**: punto donde FAR = FRR; cuanto menor, mejor discrimina el modelo.
+
+Una imagen con cero o varios rostros se rechaza: en verificación 1:1 eso es
+ambiguo. Un resultado positivo es una probabilidad con error, nunca una prueba
+de identidad.
+
+Tests (no necesitan DeepFace): `python -m pytest tests -q`
+

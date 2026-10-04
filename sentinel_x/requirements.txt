@@ -7,3 +7,9 @@ plotly>=5.20
 
 # Suricata y Zeek no son paquetes pip: se instalan con apt en Kali.
 #   sudo apt install suricata zeek nmap
+
+# Opcional: módulo de verificación facial 1:1 (modules/face_verify.py).
+# Arrastra TensorFlow; instálalo solo si vas a usar ese módulo.
+#   pip install deepface tf-keras --break-system-packages
+# Tests:
+#   pip install pytest --break-system-packages
