@@ -102,3 +102,38 @@ sentinel_x/
   lookups O(1) contra sets en memoria.
 - **MITRE ATT&CK con fallback offline**: si no hay red al arrancar, usa
   una tabla local de las ~20 técnicas más relevantes para NDR.
+
+## Datos de demostración: personas ficticias (control de acceso)
+
+Para fines educativos y de prueba, `datos_demo/` genera una base SQLite
+separada (`data/personas_demo.db`) con personas **ficticias** de
+Latinoamérica (MX, CO, AR, CL, PE, BR, EC, UY) y su historial de accesos a
+zonas de un lugar privado.
+
+```bash
+cd sentinel_x
+python -m datos_demo.generar_personas --cantidad 200 --semilla 42
+python -m datos_demo.generar_personas --csv data/personas_demo.csv   # exporta también a CSV
+```
+
+Tablas: `personas`, `zonas` (con nivel mínimo requerido) y
+`registros_acceso` (entradas/salidas permitidas o denegadas según nivel y
+estado de la persona).
+
+Criterios de protección de datos aplicados (Ley 1581/2012 CO, LGPD BR,
+LFPDPPP MX, Ley 25.326 AR, Ley 19.628/21.719 CL, Ley 29733 PE, LOPDP EC,
+Ley 18.331 UY):
+
+- **Datos sintéticos**: nombres combinados al azar; cada fila tiene
+  `es_sintetico = 1`. No usar este generador para cargar datos reales.
+- **Identificadores no reales**: documentos con prefijo `DEMO-`, correos en
+  `example.com` (dominio reservado, RFC 2606) y teléfonos no asignables.
+- **Minimización**: sin biometría, domicilio ni datos sensibles; solo año de
+  nacimiento.
+- **Finalidad, consentimiento y retención** explícitos por registro
+  (`finalidad`, `consentimiento`, `fecha_expiracion`, `norma_aplicable`).
+
+Si el sistema se usa con personas reales, se necesita además: aviso de
+privacidad, autorización previa del titular, procedimiento para ejercer
+derechos (acceso, rectificación, supresión), y registro de la base ante la
+autoridad cuando la ley lo exija (p. ej. RNBD de la SIC en Colombia).

@@ -22,3 +22,6 @@ htmlcov/
 .idea/
 Thumbs.db
 .DS_Store
+
+# Synthetic demo exports
+sentinel_x/data/*.csv
