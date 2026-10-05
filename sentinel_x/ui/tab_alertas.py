@@ -45,7 +45,10 @@ def render() -> None:
         df = df[df["Gravedad"].isin(filtro_gravedad)]
     if filtro_ip.strip():
         txt = filtro_ip.strip()
-        df = df[df["IP Origen"].str.contains(txt, na=False) | df["IP Destino"].str.contains(txt, na=False)]
+        df = df[
+            df["IP Origen"].astype(str).str.contains(txt, na=False, regex=False)
+            | df["IP Destino"].astype(str).str.contains(txt, na=False, regex=False)
+        ]
 
     df = df.sort_values("Gravedad")
 
@@ -62,5 +65,5 @@ def render() -> None:
         st.info("Sin alertas que coincidan con los filtros.")
         return
 
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(df, width="stretch")
     boton_exportar_csv(df, "alertas_suricata.csv")

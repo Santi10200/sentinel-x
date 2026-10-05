@@ -45,7 +45,7 @@ def _seccion_ml() -> None:
     df_anomalias = st.session_state.get("_df_anomalias_ml", pd.DataFrame())
     if not df_anomalias.empty:
         st.error(f"⚠️ {len(df_anomalias)} ventana(s) anómalas detectadas")
-        st.dataframe(df_anomalias, use_container_width=True)
+        st.dataframe(df_anomalias, width="stretch")
         boton_exportar_csv(df_anomalias, "anomalias_ml.csv", key="csv_ml")
     elif "_df_anomalias_ml" in st.session_state:
         st.success("Sin anomalías detectadas respecto al baseline entrenado.")
@@ -70,7 +70,7 @@ def _seccion_zeek() -> None:
     tipo_sel = st.selectbox("Tipo de log:", tipos_disponibles)
 
     df_tipo = df[df["tipo_log"] == tipo_sel].drop(columns=["tipo_log"]).dropna(axis=1, how="all")
-    st.dataframe(df_tipo.tail(100), use_container_width=True)
+    st.dataframe(df_tipo.tail(100), width="stretch")
     boton_exportar_csv(df_tipo, f"zeek_{tipo_sel}.csv", key=f"csv_zeek_{tipo_sel}")
 
 

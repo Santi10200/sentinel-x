@@ -2,7 +2,6 @@
 
 import fcntl
 import ipaddress
-import os
 import socket
 
 from core.config import CONFIG

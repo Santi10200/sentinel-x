@@ -28,7 +28,6 @@ JA3_CONOCIDOS: dict[str, str] = {
     "a0e9f5d64349fb13191bc781f81f42e1": "Python requests (default)",
     "6734f37431670b3ab4292b8f60f29984": "Trickbot (histórico)",
     "72a589da586844d7f0818ce684948eea": "Cobalt Strike (default beacon, histórico)",
-    "8f52d1ce303fb4a6515836aec3cc7twq": "Metasploit (histórico, ejemplo ilustrativo)",
 }
 
 

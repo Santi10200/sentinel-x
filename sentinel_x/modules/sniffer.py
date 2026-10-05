@@ -62,20 +62,34 @@ def _callback_tls(pkt) -> None:
         })
 
 
+def es_inicio_udp(puerto_src: int, puerto_dst: int) -> bool:
+    """
+    UDP no tiene handshake: se asume que habla el cliente cuando sale de un
+    puerto efímero hacia uno de servicio. Una respuesta (servicio -> efímero)
+    no cuenta, así un servidor DNS/DHCP no parece "escanear" a sus clientes.
+    """
+    return not (puerto_src < 1024 and puerto_dst >= 1024)
+
+
 def _callback_lan(pkt) -> None:
     if not (pkt.haslayer(IP) and (pkt.haslayer(TCP) or pkt.haslayer(UDP))):
         return
 
     ip_src, ip_dst = pkt[IP].src, pkt[IP].dst
     if pkt.haslayer(TCP):
-        puerto_dst, proto = pkt[TCP].dport, "TCP"
+        tcp = pkt[TCP]
+        puerto_src, puerto_dst, proto = tcp.sport, tcp.dport, "TCP"
+        # SYN sin ACK = intento de conexión nuevo; el resto son datos o respuestas.
+        inicio = bool(tcp.flags & 0x02) and not bool(tcp.flags & 0x10)
     else:
-        puerto_dst, proto = pkt[UDP].dport, "UDP"
+        puerto_src, puerto_dst, proto = pkt[UDP].sport, pkt[UDP].dport, "UDP"
+        inicio = es_inicio_udp(puerto_src, puerto_dst)
 
     with state.lock_eventos_lan:
         state.eventos_lan.append({
             "Origen": ip_src, "Destino": ip_dst,
-            "Puerto": puerto_dst, "Proto": proto,
+            "Puerto origen": puerto_src, "Puerto": puerto_dst, "Proto": proto,
+            "Inicio": inicio,
             "Timestamp": time.time(), "Tamaño (bytes)": len(pkt),
         })
         state.estado_hilos["sniffer_lan"]["procesados"] += 1

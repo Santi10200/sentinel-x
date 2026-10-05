@@ -47,7 +47,7 @@ def render() -> None:
     df_beacons = st.session_state.get("_df_beacons", pd.DataFrame())
     if not df_beacons.empty:
         st.error(f"⚠️ {len(df_beacons)} flujo(s) con señales de C2 / DGA detectados")
-        st.dataframe(df_beacons, use_container_width=True)
+        st.dataframe(df_beacons, width="stretch")
         boton_exportar_csv(df_beacons, "beacons_detectados.csv")
     elif "_df_beacons" in st.session_state:
         st.success("Sin patrones de beaconing ni DGA detectados con los umbrales actuales.")
@@ -68,14 +68,14 @@ def render() -> None:
                 title="Flujos TLS: SNI vs tiempo (últimos 500)", height=420,
             )
             fig.update_layout(showlegend=False)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
         except ImportError:
             st.info("Instala `plotly` para ver el gráfico: `pip install plotly`")
 
         cols = ["Hora", "Origen", "Destino", "Puerto", "SNI", "JA3", "JA3 conocido", "Tamaño (bytes)"]
         df_tabla = df[cols].tail(50).copy()
         df_tabla["Hora"] = df_tabla["Hora"].dt.strftime("%H:%M:%S")
-        st.dataframe(df_tabla, use_container_width=True)
+        st.dataframe(df_tabla, width="stretch")
         boton_exportar_csv(df_tabla, "flujos_tls.csv")
     else:
         st.caption("Esperando paquetes TLS. Genera tráfico HTTPS para activar el sniffer.")

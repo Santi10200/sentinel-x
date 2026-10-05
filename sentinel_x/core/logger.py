@@ -3,9 +3,11 @@
 import logging
 import os
 
-_LOG_PATH = os.getenv("SENTINEL_LOG_PATH", "/home/claude/sentinel_x/data/sentinel_x.log")
+# Ruta relativa al directorio de ejecución (igual que la base de datos), portable entre equipos.
+_LOG_PATH = os.getenv("SENTINEL_LOG_PATH", "data/sentinel_x.log")
 
-os.makedirs(os.path.dirname(_LOG_PATH), exist_ok=True)
+if os.path.dirname(_LOG_PATH):
+    os.makedirs(os.path.dirname(_LOG_PATH), exist_ok=True)
 
 logging.basicConfig(
     level=logging.INFO,

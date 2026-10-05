@@ -86,9 +86,9 @@ def render() -> None:
         df_f = df_f[df_f["Tipo"].isin(filtro_tipo)]
     if filtro_texto.strip():
         txt = filtro_texto.strip().lower()
-        mask = df_f.apply(lambda row: row.astype(str).str.lower().str.contains(txt).any(), axis=1)
+        mask = df_f.apply(lambda row: row.astype(str).str.lower().str.contains(txt, regex=False).any(), axis=1)
         df_f = df_f[mask]
 
-    st.dataframe(df_f.reset_index(drop=True), use_container_width=True)
+    st.dataframe(df_f.reset_index(drop=True), width="stretch")
     st.caption(f"Mostrando {len(df_f)} de {len(df)}.")
     boton_exportar_csv(df_f, "inventario_red.csv")
