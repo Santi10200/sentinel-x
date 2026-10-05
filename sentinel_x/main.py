@@ -63,6 +63,7 @@ with st.sidebar:
     estado_hilo_widget("suricata_tail", "Suricata (tail)")
     estado_hilo_widget("zeek_watch", "Zeek (watch)")
     estado_hilo_widget("ti_updater", "Threat Intel")
+    estado_hilo_widget("ml_baseline", "Baseline ML")
     if CONFIG["wifi_monitor_iface"]:
         estado_hilo_widget("sniffer_wifi", "Sniffer Wi-Fi")
 

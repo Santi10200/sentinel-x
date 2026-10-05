@@ -17,7 +17,7 @@ from core.config import CONFIG
 from core.logger import get_logger
 from modules import (
     beaconing, correlation_engine, lateral_movement, mitre_attack, ml_baseline,
-    nist_csf, postura, respuesta_incidentes, threat_intel,
+    nist_csf, postura, respuesta_incidentes, threat_intel, vulnerabilidades,
 )
 
 logger = get_logger("analisis")
@@ -82,11 +82,13 @@ def ejecutar_analisis() -> dict:
     df_beacons = beaconing.detectar(flujos_tls)
     df_fanout = lateral_movement.detectar_fanout(eventos_lan)
     df_puertos = lateral_movement.detectar_puertos_riesgo(eventos_lan)
-    df_ml = ml_baseline.detectar_anomalias(eventos_lan or flujos_tls)
+    ml_baseline.persistir_features(eventos_lan + flujos_tls)
+    df_ml = ml_baseline.detectar_anomalias_recientes()
     incidentes = correlation_engine.correlacionar(
         df_beacons, df_fanout, df_puertos, df_ml, list(alertas)[-200:]
     )
-    df_postura = postura.evaluar(inventario, eventos_lan, redes_wifi)
+    vulns = vulnerabilidades.vulnerabilidades_guardadas()
+    df_postura = postura.evaluar(inventario, eventos_lan, redes_wifi, vulns)
 
     resultado = {
         "timestamp": inicio,
@@ -101,6 +103,7 @@ def ejecutar_analisis() -> dict:
         "df_ml": df_ml,
         "incidentes": incidentes,
         "df_postura": df_postura,
+        "vulnerabilidades": vulns,
     }
     resultado.update(evaluar_nist(resultado))
     logger.info("Análisis completo en %.2fs: %d incidentes, %d hallazgos de postura.",
@@ -125,6 +128,7 @@ def evaluar_nist(resultado: dict) -> dict:
         ti_indicadores=stats_ti["ips_maliciosas"] + stats_ti["dominios_maliciosos"],
         mitre_tecnicas=mitre_attack.num_tecnicas_cargadas(),
         analisis_ejecutado=True,
+        cve_consultado=bool(database.consultar("SELECT 1 FROM cve_cache LIMIT 1")),
         incidentes=resultado["incidentes"],
         postura=resultado["df_postura"],
         redes_wifi=resultado["redes_wifi"],

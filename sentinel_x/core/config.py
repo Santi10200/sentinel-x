@@ -54,6 +54,10 @@ CONFIG = {
     "ml_ventana_entrenamiento_horas": 24,
     "ml_min_muestras_entrenamiento": 30,
     "ml_contaminacion": 0.05,          # proporción esperada de anomalías
+    "ml_reentreno_min": int(os.getenv("SENTINEL_ML_RETRAIN_MIN", "60")),
+    "ml_ventana_deteccion_min": 60,     # minutos recientes que puntúa el análisis
+    "ml_umbral_sigma": 3.0,             # desviación mínima para reportar una anomalía
+    "ml_modelos_path": os.getenv("SENTINEL_ML_MODELS_PATH", "data/ml_modelos.joblib"),
 
     # ── Threat Intelligence ─────────────────────────────────────────────
     "ti_habilitado": _bool_env("SENTINEL_TI_ENABLED", True),
@@ -63,6 +67,12 @@ CONFIG = {
     "ti_urlhaus_url": "https://urlhaus.abuse.ch/downloads/csv_recent/",
     "ti_kev_url": "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
     "ti_actualizacion_seg": 3600,
+
+    # ── NVD (CVE) ────────────────────────────────────────────────────────
+    "nvd_api_url": "https://services.nvd.nist.gov/rest/json/cves/2.0",
+    "nvd_api_key": os.getenv("SENTINEL_NVD_API_KEY"),  # opcional: 10x más peticiones
+    "nvd_timeout_seg": 20,
+    "nvd_cache_dias": 7,
 
     # ── MITRE ATT&CK ─────────────────────────────────────────────────────
     "mitre_stix_url": (

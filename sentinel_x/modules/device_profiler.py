@@ -20,6 +20,7 @@ import socket
 import subprocess
 import urllib.request
 import json
+import xml.etree.ElementTree as ET
 
 from scapy.all import ARP, Ether, srp
 
@@ -142,35 +143,61 @@ def leer_dhcp_leases() -> dict[str, str]:
     return leases
 
 
+def parsear_nmap_xml(xml_texto: str) -> dict:
+    """
+    Interpreta la salida `-oX -` de Nmap. A diferencia del texto, el XML
+    trae producto, versión y CPE de cada servicio, que es lo que necesita
+    la búsqueda de CVE en el NVD (modules/vulnerabilidades.py).
+    """
+    resultado = {"os_detectado": "N/A", "puertos_abiertos": "", "servicios": "", "servicios_detalle": "[]"}
+    raiz = ET.fromstring(xml_texto)
+    host = raiz.find("host")
+    if host is None:
+        return resultado
+
+    osmatch = host.find("os/osmatch")
+    if osmatch is not None and osmatch.get("name"):
+        resultado["os_detectado"] = osmatch.get("name")[:60]
+
+    puertos, servicios, detalle = [], [], []
+    for puerto in host.findall("ports/port"):
+        estado = puerto.find("state")
+        if estado is None or estado.get("state") != "open":
+            continue
+        proto, numero = puerto.get("protocol", "tcp"), int(puerto.get("portid", 0))
+        svc = puerto.find("service")
+        nombre = svc.get("name", "") if svc is not None else ""
+        producto = svc.get("product", "") if svc is not None else ""
+        version = svc.get("version", "") if svc is not None else ""
+        cpes = [c.text.strip() for c in svc.findall("cpe") if c.text] if svc is not None else []
+
+        puertos.append(f"{numero}/{proto}")
+        servicios.append(" ".join(x for x in (nombre, producto, version) if x))
+        detalle.append({"puerto": numero, "proto": proto, "servicio": nombre,
+                        "producto": producto, "version": version, "cpes": cpes})
+
+    resultado["puertos_abiertos"] = ", ".join(puertos)
+    resultado["servicios"] = ", ".join(servicios[:12])
+    resultado["servicios_detalle"] = json.dumps(detalle, ensure_ascii=False)
+    return resultado
+
+
 def perfil_nmap(ip: str) -> dict:
-    """nmap -O -sV. Requiere root y nmap instalado. Timeout configurable."""
-    resultado = {"os_detectado": "N/A", "puertos_abiertos": "", "servicios": ""}
+    """nmap -O -sV con salida XML. Requiere root y nmap instalado. Timeout configurable."""
+    resultado = {"os_detectado": "N/A", "puertos_abiertos": "", "servicios": "", "servicios_detalle": "[]"}
     try:
         proc = subprocess.run(
             ["nmap", "-O", "-sV", "--version-intensity", str(CONFIG["nmap_version_intensity"]),
-             "-T4", "--open", ip],
+             "-T4", "--open", "-oX", "-", ip],
             capture_output=True, text=True, timeout=CONFIG["nmap_timeout_seg"],
         )
-        salida = proc.stdout
-        os_match = re.search(r"OS details:\s*(.+)", salida) or \
-                   re.search(r"Aggressive OS guesses:\s*(.+?)(?:\(|$)", salida)
-        if os_match:
-            resultado["os_detectado"] = os_match.group(1).strip()[:60]
-
-        puertos, servicios = [], []
-        for linea in salida.splitlines():
-            m = re.match(r"(\d+/\w+)\s+open\s+(\S+)\s*(.*)", linea)
-            if m:
-                puertos.append(m.group(1))
-                svc, version = m.group(2), m.group(3).strip()
-                servicios.append(f"{svc} {version}".strip() if version else svc)
-
-        resultado["puertos_abiertos"] = ", ".join(puertos[:10])
-        resultado["servicios"] = ", ".join(servicios[:6])
+        resultado = parsear_nmap_xml(proc.stdout)
     except FileNotFoundError:
         resultado["os_detectado"] = "nmap no instalado"
     except subprocess.TimeoutExpired:
         resultado["os_detectado"] = "Timeout"
+    except ET.ParseError as exc:
+        logger.warning("Salida XML de Nmap inválida para %s: %s", ip, exc)
     except Exception as exc:
         logger.warning("Nmap error en %s: %s", ip, exc)
     return resultado

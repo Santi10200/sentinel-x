@@ -8,10 +8,11 @@ identificadas) y PROTECT (PR.DS-02: datos en tránsito protegidos,
 PR.PS-01: configuración segura, PR.IR-01: red protegida de acceso no
 autorizado).
 
-Tres fuentes, todas ya capturadas por Sentinel-X:
+Cuatro fuentes, todas ya capturadas por Sentinel-X:
   1. Inventario (Nmap)   -> servicios inseguros publicados en cada host.
-  2. Eventos LAN         -> protocolos en texto claro realmente usados.
-  3. Redes Wi-Fi         -> cifrado débil o sin protección de tramas (PMF).
+     + CVE del NVD/KEV   -> versiones con vulnerabilidades conocidas (vulnerabilidades.py).
+  3. Eventos LAN         -> protocolos en texto claro realmente usados.
+  4. Redes Wi-Fi         -> cifrado débil o sin protección de tramas (PMF).
 
 Cada hallazgo incluye severidad, subcategoría NIST, técnica MITRE que
 facilita y una recomendación concreta, para que un estudiante o una pyme
@@ -21,6 +22,8 @@ sepa qué hacer sin tener que investigar cada caso.
 import re
 
 import pandas as pd
+
+from modules import vulnerabilidades as vulnerabilidades_mod
 
 _ORDEN_SEVERIDAD = {"Crítica": 0, "Alta": 1, "Media": 2, "Baja": 3}
 
@@ -166,10 +169,14 @@ def wifi_debil(redes: list[dict]) -> list[dict]:
     return hallazgos
 
 
-def evaluar(inventario: list[dict], eventos_lan: list[dict], redes_wifi: list[dict]) -> pd.DataFrame:
+def evaluar(
+    inventario: list[dict], eventos_lan: list[dict], redes_wifi: list[dict],
+    vulnerabilidades: list[dict] | None = None,
+) -> pd.DataFrame:
     """Todos los hallazgos de postura ordenados por severidad."""
     hallazgos = (
         servicios_inseguros(inventario)
+        + vulnerabilidades_mod.hallazgos_postura(vulnerabilidades or [])
         + protocolos_en_claro(eventos_lan)
         + wifi_debil(redes_wifi)
     )

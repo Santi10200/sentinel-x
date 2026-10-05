@@ -34,6 +34,13 @@ def _get_conn() -> sqlite3.Connection:
     return _conn
 
 
+def _migrar(conn: sqlite3.Connection) -> None:
+    """Añade columnas nuevas a bases creadas por versiones anteriores."""
+    columnas = {fila[1] for fila in conn.execute("PRAGMA table_info(inventario_red)")}
+    if "servicios_detalle" not in columnas:
+        conn.execute("ALTER TABLE inventario_red ADD COLUMN servicios_detalle TEXT")
+
+
 def inicializar_db() -> None:
     """Crea las tablas si no existen. Llamar una vez al arranque."""
     with _lock_db:
@@ -71,6 +78,7 @@ def inicializar_db() -> None:
                 mac TEXT, fabricante TEXT, tipo TEXT,
                 hostname TEXT, fuente_hostname TEXT,
                 os_detectado TEXT, puertos_abiertos TEXT, servicios TEXT,
+                servicios_detalle TEXT,
                 primera_vez REAL, ultima_vez REAL
             );
 
@@ -107,17 +115,45 @@ def inicializar_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_historial_caso ON casos_historial(caso_id);
 
+            -- CVE asociados a los servicios del inventario (NVD + CISA KEV).
+            CREATE TABLE IF NOT EXISTS vulnerabilidades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL NOT NULL,
+                ip TEXT, puerto INTEGER, servicio TEXT, cpe TEXT,
+                cve TEXT, cvss REAL, severidad TEXT, kev INTEGER, descripcion TEXT,
+                UNIQUE(ip, puerto, cve)
+            );
+            CREATE INDEX IF NOT EXISTS idx_vulns_ip ON vulnerabilidades(ip);
+
+            -- Respuestas del NVD por CPE (también vacías) para respetar su límite de peticiones.
+            CREATE TABLE IF NOT EXISTS cve_cache (
+                cpe TEXT PRIMARY KEY,
+                timestamp REAL NOT NULL,
+                respuesta TEXT
+            );
+
+            -- Features por host y minuto: la memoria del baseline ML entre reinicios.
+            CREATE TABLE IF NOT EXISTS ml_features (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL NOT NULL,
+                host TEXT NOT NULL, minuto INTEGER NOT NULL,
+                bytes_totales REAL, paquetes REAL, destinos_unicos REAL, puertos_unicos REAL,
+                UNIQUE(host, minuto)
+            );
+            CREATE INDEX IF NOT EXISTS idx_ml_ts ON ml_features(timestamp);
+
             -- Autoevaluación de subcategorías NIST CSF que la red no puede medir.
             CREATE TABLE IF NOT EXISTS nist_autoevaluacion (
                 subcategoria TEXT PRIMARY KEY,
                 estado TEXT, nota TEXT, actualizado REAL
             );
         """)
+        _migrar(conn)
         conn.commit()
     logger.info("Base de datos inicializada en %s", CONFIG["db_path"])
 
 
-_TABLAS_ROTABLES = ("flujos_tls", "alertas_ids", "incidentes", "ti_hits")
+_TABLAS_ROTABLES = ("flujos_tls", "alertas_ids", "incidentes", "ti_hits", "ml_features")
 _TABLAS_INSERTABLES = set(_TABLAS_ROTABLES) | {"casos", "casos_historial"}
 _RE_COLUMNA = re.compile(r"^[a-z_][a-z0-9_]*$")
 
@@ -158,6 +194,19 @@ def ejecutar(sql: str, params: tuple = ()) -> int:
             return 0
 
 
+def ejecutar_varios(sql: str, filas: list[tuple]) -> None:
+    """executemany en una sola transacción (inserciones en lote)."""
+    if not filas:
+        return
+    with _lock_db:
+        try:
+            conn = _get_conn()
+            conn.executemany(sql, filas)
+            conn.commit()
+        except sqlite3.Error as exc:
+            logger.error("Error en inserción en lote: %s", exc)
+
+
 def upsert_red_wifi(red: dict) -> None:
     """Guarda el último estado de seguridad observado para un BSSID."""
     ahora = time.time()
@@ -196,18 +245,23 @@ def upsert_inventario(perfil: dict) -> None:
             conn.execute("""
                 INSERT INTO inventario_red
                     (ip, mac, fabricante, tipo, hostname, fuente_hostname,
-                     os_detectado, puertos_abiertos, servicios, primera_vez, ultima_vez)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     os_detectado, puertos_abiertos, servicios, servicios_detalle,
+                     primera_vez, ultima_vez)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(ip) DO UPDATE SET
                     mac=excluded.mac, fabricante=excluded.fabricante, tipo=excluded.tipo,
                     hostname=excluded.hostname, fuente_hostname=excluded.fuente_hostname,
-                    os_detectado=excluded.os_detectado, puertos_abiertos=excluded.puertos_abiertos,
-                    servicios=excluded.servicios, ultima_vez=excluded.ultima_vez
+                    -- Un re-escaneo sin Nmap no borra lo que Nmap ya averiguó.
+                    os_detectado=COALESCE(excluded.os_detectado, inventario_red.os_detectado),
+                    puertos_abiertos=COALESCE(excluded.puertos_abiertos, inventario_red.puertos_abiertos),
+                    servicios=COALESCE(excluded.servicios, inventario_red.servicios),
+                    servicios_detalle=COALESCE(excluded.servicios_detalle, inventario_red.servicios_detalle),
+                    ultima_vez=excluded.ultima_vez
             """, (
                 perfil["ip"], perfil.get("mac"), perfil.get("fabricante"),
                 perfil.get("tipo"), perfil.get("hostname"), perfil.get("fuente_hostname"),
                 perfil.get("os_detectado"), perfil.get("puertos_abiertos"),
-                perfil.get("servicios"), primera_vez, ahora,
+                perfil.get("servicios"), perfil.get("servicios_detalle"), primera_vez, ahora,
             ))
             conn.commit()
         except sqlite3.Error as exc:

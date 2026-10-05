@@ -20,7 +20,7 @@ Gobierno/Resp.   -> Perfil NIST CSF 2.0 · Casos SP 800-61 · Informe HTML expor
 | Función CSF 2.0 | Qué aporta Sentinel-X | Subcategorías evaluadas |
 |---|---|---|
 | **Gobernar (GV)** | Autoevaluación guiada (no observable en la red) | GV.OC-03, GV.PO-01, GV.RR-02 |
-| **Identificar (ID)** | Inventario ARP/Nmap, mapa de flujos, servicios inseguros, TI, MITRE | ID.AM-01/02/03, ID.RA-01/02/03/05 |
+| **Identificar (ID)** | Inventario ARP/Nmap, mapa de flujos, servicios inseguros, CVE (NVD + CISA KEV), TI, MITRE | ID.AM-01/02/03, ID.RA-01/02/03/05 |
 | **Proteger (PR)** | Protocolos en claro, Wi-Fi débil/sin PMF, configuración de servicios | PR.DS-02, PR.PS-01, PR.IR-01 (+ PR.AT-01, PR.DS-11 manuales) |
 | **Detectar (DE)** | Sensores, alertas IDS, beaconing, lateral, ML, correlación | DE.CM-01, DE.AE-02/03/04/06/07/08 |
 | **Responder (RS)** | Casos con prioridad P1-P4, playbook, historial solo-anexar | RS.MA-02/03, RS.AN-03/06, RS.MI-01/02 |
@@ -38,7 +38,8 @@ en un historial con fecha y autor que no se edita ni se borra (RS.AN-06).
 
 ### Flujo de uso recomendado
 
-1. **Dispositivos**: escanea la red (activa *Nmap -O -sV* para inventariar servicios).
+1. **Dispositivos**: escanea la red (activa *Nmap -O -sV* para inventariar servicios) y pulsa
+   *Buscar CVE en el NVD*.
 2. Deja capturar tráfico unos minutos (sensores en verde en la barra lateral).
 3. **Resumen**: pulsa *Ejecutar análisis completo*.
 4. **NIST CSF**: revisa el perfil, completa la autoevaluación y descarga el informe.
@@ -88,6 +89,9 @@ requieren privilegios elevados (CAP_NET_RAW / CAP_NET_ADMIN como mínimo).
 | `SENTINEL_DB_PATH` | `data/sentinel.db` | Ruta de la base SQLite |
 | `SENTINEL_LOG_PATH` | `data/sentinel_x.log` | Ruta del log de la aplicación |
 | `SENTINEL_TI_ENABLED` | `true` | Activa/desactiva Threat Intelligence |
+| `SENTINEL_NVD_API_KEY` | — | Clave gratuita del NVD: ~10x más consultas de CVE por minuto |
+| `SENTINEL_ML_RETRAIN_MIN` | `60` | Cada cuántos minutos se reentrena el baseline ML |
+| `SENTINEL_ML_MODELS_PATH` | `data/ml_modelos.joblib` | Dónde se guardan los modelos ML |
 | `SENTINEL_WIFI_MONITOR_IFACE` | — | Interfaz ya en modo monitor (ej. `wlan0mon`) para auditar Wi-Fi |
 
 ## Estructura del proyecto
@@ -113,9 +117,10 @@ sentinel_x/
 │   ├── mitre_attack.py        # Mapeo a MITRE ATT&CK
 │   ├── beaconing.py           # Detección C2
 │   ├── lateral_movement.py    # Fan-out + puertos de riesgo
-│   ├── ml_baseline.py         # IsolationForest por host
+│   ├── ml_baseline.py         # IsolationForest por host, persistente y con reentreno
 │   ├── correlation_engine.py  # Motor de incidentes
-│   ├── postura.py             # Exposición: servicios inseguros, texto claro, Wi-Fi
+│   ├── postura.py             # Exposición: servicios inseguros, CVE, texto claro, Wi-Fi
+│   ├── vulnerabilidades.py    # CPE de Nmap -> CVE del NVD + CISA KEV
 │   ├── analisis.py            # Pipeline único (misma foto para todas las vistas)
 │   ├── nist_csf.py            # Evaluación NIST CSF 2.0
 │   ├── respuesta_incidentes.py# Casos y ciclo de vida SP 800-61
@@ -165,3 +170,14 @@ python3 -m pytest -q tests
   se corrobora con fan-out, ML o alertas IDS del mismo equipo.
 - **Postura ≠ incidentes**: la exposición (Telnet abierto, Wi-Fi WEP) se
   muestra aparte para no inflar el número de ataques.
+- **CVE bajo demanda y cacheados**: el NVD limita a 5 consultas cada 30 s sin
+  clave, así que la búsqueda se lanza desde la UI (nunca en el análisis) y cada
+  respuesta queda 7 días en SQLite. Un CVE presente en CISA KEV pasa a Crítico.
+  La versión del banner no refleja parches retroportados por la distribución:
+  los resultados son candidatos a verificar.
+- **Baseline ML con memoria**: las features por minuto se guardan en SQLite y
+  el modelo se reentrena solo (24 h de ventana), excluyendo los minutos que ya
+  eran anómalos para que un ataque sostenido no se aprenda como normal. Una
+  anomalía solo se reporta si además hay una métrica a ≥3σ de lo habitual del
+  host o actividad en un horario nunca visto; así se descartan los falsos
+  positivos que `contamination` introduce por diseño, y cada alerta trae su motivo.

@@ -49,6 +49,7 @@ estado_hilos: dict = {
     "zeek_watch": {"activo": False, "error": None, "procesados": 0},
     "ti_updater": {"activo": False, "error": None, "ultima_actualizacion": None},
     "sniffer_wifi": {"activo": False, "error": None, "procesados": 0},
+    "ml_baseline": {"activo": False, "error": None, "procesados": 0, "ultimo_entrenamiento": None},
 }
 
 

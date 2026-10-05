@@ -3,10 +3,83 @@
 import pandas as pd
 import streamlit as st
 
+import plotly.express as px
+
 from core import database
+from core.config import CONFIG
 from core.network_iface import cidr_de_interfaz, interfaz_configurada
-from modules import device_profiler
+from modules import device_profiler, threat_intel, vulnerabilidades
 from ui.helpers import boton_exportar_csv
+
+
+def _seccion_cve() -> None:
+    st.markdown("#### Vulnerabilidades conocidas (NVD · CISA KEV)")
+    st.caption(
+        "Cruza el producto y versión que identificó Nmap (CPE) con la base de datos de "
+        "vulnerabilidades del NIST y marca las que CISA tiene registradas como explotadas "
+        "activamente. NIST CSF 2.0: ID.RA-01 / ID.RA-02."
+    )
+    inventario = database.consultar("SELECT * FROM inventario_red")
+    servicios = vulnerabilidades.servicios_con_cpe(inventario)
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Servicios con versión (CPE)", len(servicios))
+    c2.metric("Clave API NVD", "Sí" if CONFIG["nvd_api_key"] else "No")
+    c3.metric("CVE en CISA KEV cargados", threat_intel.estadisticas_feeds()["cves_kev"])
+
+    if not servicios:
+        st.info("Ejecuta un escaneo con **Nmap -O -sV** activado para identificar versiones.")
+    else:
+        if not CONFIG["nvd_api_key"]:
+            st.caption(
+                f"Sin clave API el NVD permite ~5 consultas cada 30 s: unos {len(servicios) * 6} s para "
+                "este inventario (las respuestas se cachean). Clave gratuita: variable SENTINEL_NVD_API_KEY."
+            )
+        if not threat_intel.estadisticas_feeds()["cves_kev"]:
+            st.warning("Catálogo CISA KEV no cargado: no se podrá marcar la explotación activa.")
+        if st.button("🛡️ Buscar CVE en el NVD"):
+            barra = st.progress(0.0, text="Consultando el NVD...")
+            resumen = vulnerabilidades.buscar_vulnerabilidades(
+                inventario, progreso=lambda i, n, txt: barra.progress(i / n, text=f"{i}/{n} · {txt}"),
+            )
+            barra.empty()
+            if resumen["fallidos"] and not resumen["consultados"]:
+                st.error("No se pudo contactar con el NVD. Revisa la conexión a services.nvd.nist.gov.")
+            else:
+                st.success(
+                    f"{resumen['consultados']} servicios consultados · {resumen['cves']} CVE · "
+                    f"{resumen['kev']} con explotación activa (KEV)"
+                    + (f" · {resumen['fallidos']} sin respuesta" if resumen["fallidos"] else "")
+                )
+
+    filas = vulnerabilidades.vulnerabilidades_guardadas()
+    if not filas:
+        return
+    df = pd.DataFrame(filas)
+    df["KEV"] = df["kev"].map(lambda k: "🔥 Sí" if k else "—")
+    df = df[["ip", "puerto", "servicio", "cve", "cvss", "severidad", "KEV", "descripcion"]].rename(columns={
+        "ip": "IP", "puerto": "Puerto", "servicio": "Servicio", "cve": "CVE", "cvss": "CVSS",
+        "severidad": "Severidad", "descripcion": "Descripción",
+    })
+    g1, g2 = st.columns([1, 2])
+    with g1:
+        fig = px.histogram(df, x="CVSS", nbins=10, range_x=[0, 10], height=260, title="Distribución CVSS")
+        fig.update_layout(margin=dict(t=50, b=10))
+        st.plotly_chart(fig, width="stretch")
+    with g2:
+        solo_kev = st.toggle("Solo explotadas activamente (KEV)", value=False)
+        severidades = st.multiselect("Severidad", ["Crítica", "Alta", "Media", "Baja"],
+                                     default=["Crítica", "Alta", "Media", "Baja"], key="cve_sev")
+    df_f = df[df["Severidad"].isin(severidades)]
+    if solo_kev:
+        df_f = df_f[df_f["KEV"] != "—"]
+    df_vista = df_f.copy()
+    df_vista["CVE"] = "https://nvd.nist.gov/vuln/detail/" + df_vista["CVE"]
+    st.dataframe(df_vista, width="stretch", hide_index=True, column_config={
+        "CVE": st.column_config.LinkColumn("CVE", display_text=r"https://nvd\.nist\.gov/vuln/detail/(.*)"),
+    })
+    st.caption("Resultados según la versión anunciada: verifica parches retroportados de tu distribución.")
+    boton_exportar_csv(df_f, "vulnerabilidades_cve.csv", key="csv_cve")
 
 
 def render() -> None:
@@ -92,3 +165,6 @@ def render() -> None:
     st.dataframe(df_f.reset_index(drop=True), width="stretch")
     st.caption(f"Mostrando {len(df_f)} de {len(df)}.")
     boton_exportar_csv(df_f, "inventario_red.csv")
+
+    st.markdown("---")
+    _seccion_cve()

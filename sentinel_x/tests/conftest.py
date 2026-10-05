@@ -21,6 +21,7 @@ def db():
     """Base de datos vacía para cada prueba."""
     database.inicializar_db()
     for tabla in ("casos_historial", "casos", "nist_autoevaluacion", "inventario_red",
-                  "flujos_tls", "alertas_ids", "incidentes", "ti_hits", "redes_wifi"):
+                  "flujos_tls", "alertas_ids", "incidentes", "ti_hits", "redes_wifi",
+                  "vulnerabilidades", "cve_cache", "ml_features"):
         database.ejecutar(f"DELETE FROM {tabla}")
     return database

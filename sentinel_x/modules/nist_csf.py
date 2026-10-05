@@ -93,6 +93,7 @@ class Contexto:
     ti_indicadores: int = 0
     mitre_tecnicas: int = 0
     analisis_ejecutado: bool = False
+    cve_consultado: bool = False
     incidentes: list[dict] = field(default_factory=list)
     postura: pd.DataFrame = field(default_factory=pd.DataFrame)
     redes_wifi: list[dict] = field(default_factory=list)
@@ -182,10 +183,15 @@ def evaluar(ctx: Contexto) -> pd.DataFrame:
                            "Escanea con Nmap para detectar servicios inseguros."))
     else:
         estado = _estado_por_hallazgos(vulns)
+        if estado == CUMPLE and not ctx.cve_consultado:
+            estado = PARCIAL  # servicios revisados, pero sin contrastar versiones con CVE
+        evidencia = ("Sin servicios inseguros detectados" if vulns.empty
+                     else f"{len(vulns)} hallazgos ({_resumen_severidades(vulns)})")
+        evidencia += "; CVE contrastados con NVD" if ctx.cve_consultado else "; CVE sin consultar"
         filas.append(_fila(
-            "ID.RA-01", estado,
-            "Sin servicios inseguros detectados" if vulns.empty else f"{len(vulns)} servicios inseguros ({_resumen_severidades(vulns)})",
-            "Corrige los servicios listados en 'Postura' empezando por los críticos.",
+            "ID.RA-01", estado, evidencia,
+            "Corrige los hallazgos de 'Postura' empezando por los críticos y los que están en CISA KEV."
+            if not vulns.empty else "Busca CVE en el NVD desde la pestaña Dispositivos.",
         ))
 
     if not ctx.ti_habilitado:
