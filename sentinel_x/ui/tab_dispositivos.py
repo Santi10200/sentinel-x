@@ -64,12 +64,12 @@ def _seccion_cve() -> None:
         "descripcion": "Descripción",
     })
     a1, a2, a3 = st.columns(3)
-    for col, nivel, ayuda in (
-        (a1, "Probable", "Explotable con la configuración por defecto"),
-        (a2, "Condicional", "Solo si hay una función concreta activa (IPv6, DNSSEC, TFTP...)"),
-        (a3, "Improbable", "Requiere un entorno que no corresponde (p. ej. libvirt)"),
+    for col, nivel, etiqueta, ayuda in (
+        (a1, "Probable", "CVE probables", "Explotable con la configuración por defecto"),
+        (a2, "Condicional", "CVE condicionales", "Solo si hay una función concreta activa (IPv6, DNSSEC, TFTP...)"),
+        (a3, "Improbable", "CVE improbables", "Requiere un entorno que no corresponde (p. ej. libvirt)"),
     ):
-        col.metric(f"CVE {nivel.lower()}s", int((df["Aplicabilidad"] == nivel).sum()), help=ayuda)
+        col.metric(etiqueta, int((df["Aplicabilidad"] == nivel).sum()), help=ayuda)
     g1, g2 = st.columns([1, 2])
     with g1:
         fig = px.histogram(df, x="CVSS", nbins=10, range_x=[0, 10], height=260, title="Distribución CVSS")
