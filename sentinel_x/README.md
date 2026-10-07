@@ -112,6 +112,7 @@ sentinel_x/
 │   ├── zeek_reader.py         # Watch de logs Zeek
 │   ├── tls_analysis.py        # JA3 completo + DGA
 │   ├── device_profiler.py     # ARP + OUI + DNS + DHCP + Nmap
+│   ├── identidad.py           # Modelo real: DHCP, mDNS, UPnP, MAC privada, etiquetas
 │   ├── wifi_security.py       # Parser RSN: cifrado, AKM, PMF
 │   ├── threat_intel.py        # Feodo / URLhaus / CISA KEV
 │   ├── mitre_attack.py        # Mapeo a MITRE ATT&CK
@@ -181,3 +182,11 @@ python3 -m pytest -q tests
   anomalía solo se reporta si además hay una métrica a ≥3σ de lo habitual del
   host o actividad en un horario nunca visto; así se descartan los falsos
   positivos que `contamination` introduce por diseño, y cada alerta trae su motivo.
+- **Identificar el aparato, no el chip**: el prefijo MAC (OUI) solo dice quién
+  fabricó la tarjeta de red (MediaTek, Espressif...) y los celulares modernos
+  usan MAC aleatoria por red. Por eso `identidad.py` escucha lo que cada equipo
+  anuncia de sí mismo (hostname y huella DHCP, modelo por mDNS/Bonjour,
+  descripción UPnP) y pregunta activamente por mDNS/SSDP al escanear. Cada
+  identificación muestra su confianza (Manual > Alta > Media > Baja) y su
+  fuente; el fabricante del chip queda como dato secundario. Las etiquetas
+  manuales convierten el inventario en un registro de activos (CSF ID.AM-01).

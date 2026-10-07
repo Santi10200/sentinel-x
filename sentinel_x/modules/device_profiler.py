@@ -26,7 +26,8 @@ from scapy.all import ARP, Ether, srp
 
 from core.config import CONFIG
 from core.logger import get_logger
-from core.network_iface import interfaz_configurada
+from core.network_iface import interfaz_configurada, ip_y_mascara
+from modules import identidad
 
 logger = get_logger("device_profiler")
 
@@ -83,6 +84,47 @@ def _arp_scan(ip_rango: str) -> list[dict]:
     ether = Ether(dst="ff:ff:ff:ff:ff:ff")
     resultado = srp(ether / arp, timeout=2, verbose=0, iface=interfaz_configurada())[0]
     return [{"IP": r.psrc, "MAC": r.hwsrc} for _, r in resultado]
+
+
+_oui_sistema: dict[str, str] | None = None
+
+
+def parsear_oui(texto: str) -> dict[str, str]:
+    """
+    Formatos de Wireshark ("00:00:0C<TAB>Cisco<TAB>Cisco Systems, Inc") y de
+    nmap ("00000C Cisco Systems") -> {"00:00:0C": "Cisco Systems, Inc"}.
+    Se ignoran los bloques más pequeños (/28, /36) de Wireshark.
+    """
+    tabla = {}
+    for linea in texto.splitlines():
+        linea = linea.strip()
+        if not linea or linea.startswith("#"):
+            continue
+        partes = re.split(r"\s+", linea, maxsplit=1) if "\t" not in linea else linea.split("\t")
+        prefijo = partes[0].upper().replace("-", ":")
+        if "/" in prefijo or len(partes) < 2:
+            continue
+        if re.fullmatch(r"[0-9A-F]{6}", prefijo):
+            prefijo = ":".join(prefijo[i:i + 2] for i in range(0, 6, 2))
+        if re.fullmatch(r"[0-9A-F]{2}(:[0-9A-F]{2}){2}", prefijo):
+            nombre = (partes[2] if len(partes) > 2 and partes[2].strip() else partes[1]).strip()
+            tabla.setdefault(prefijo, nombre)
+    return tabla
+
+
+def _oui_de_sistema(mac: str) -> str:
+    global _oui_sistema
+    if _oui_sistema is None:
+        _oui_sistema = {}
+        for ruta in CONFIG["rutas_oui_sistema"]:
+            try:
+                with open(ruta, encoding="utf-8", errors="replace") as f:
+                    for k, v in parsear_oui(f.read()).items():
+                        _oui_sistema.setdefault(k, v)
+            except OSError:
+                continue
+        logger.info("Base OUI del sistema: %d prefijos.", len(_oui_sistema))
+    return _oui_sistema.get(mac.upper()[:8], "")
 
 
 def _oui_local(mac: str) -> tuple[str, str]:
@@ -203,7 +245,9 @@ def perfil_nmap(ip: str) -> dict:
     return resultado
 
 
-def escanear_y_perfilar(ip_rango: str, usar_nmap: bool = False, usar_ieee: bool = True) -> list[dict]:
+def escanear_y_perfilar(
+    ip_rango: str, usar_nmap: bool = False, usar_ieee: bool = True, usar_descubrimiento: bool = True,
+) -> list[dict]:
     try:
         ip_rango = str(ipaddress.ip_network(ip_rango, strict=False))
     except ValueError:
@@ -221,14 +265,26 @@ def escanear_y_perfilar(ip_rango: str, usar_nmap: bool = False, usar_ieee: bool 
     logger.info("ARP encontró %d hosts. Iniciando perfilado...", len(hosts))
     dhcp_map = leer_dhcp_leases()
 
+    # mDNS/SSDP en paralelo con el perfilado: los modelos quedan en identidad_obs.
+    descubrimiento = None
+    if usar_descubrimiento:
+        info_iface = ip_y_mascara(interfaz_configurada())
+        descubrimiento = concurrent.futures.ThreadPoolExecutor(max_workers=1).submit(
+            identidad.descubrir_activo, info_iface[0] if info_iface else None)
+
     def _enriquecer(host: dict) -> dict:
         ip, mac = host["IP"], host["MAC"]
         mac_norm = mac.lower()
 
-        vendor_local, tipo_local = _oui_local(mac)
-        vendor_online = _oui_online(mac) if (usar_ieee and not vendor_local) else ""
-        vendor = vendor_local or vendor_online or "Desconocido"
-        tipo = tipo_local or _inferir_tipo(vendor)
+        if identidad.es_mac_aleatoria(mac):
+            # MAC privada: el prefijo es inventado, consultarlo daría un fabricante falso.
+            vendor, tipo = "MAC privada (aleatoria)", "Smartphone / tablet (MAC privada)"
+        else:
+            vendor_local, tipo_local = _oui_local(mac)
+            vendor_sistema = "" if vendor_local else _oui_de_sistema(mac)
+            vendor_online = _oui_online(mac) if (usar_ieee and not (vendor_local or vendor_sistema)) else ""
+            vendor = vendor_local or vendor_sistema or vendor_online or "Desconocido"
+            tipo = tipo_local or _inferir_tipo(vendor)
 
         hostname_dhcp = dhcp_map.get(mac_norm, "")
         hostname_dns = _dns_reverso(ip) if not hostname_dhcp else ""
@@ -247,5 +303,7 @@ def escanear_y_perfilar(ip_rango: str, usar_nmap: bool = False, usar_ieee: bool 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
         dispositivos = list(pool.map(_enriquecer, hosts))
 
+    if descubrimiento is not None:
+        logger.info("Descubrimiento activo: %s", descubrimiento.result())
     logger.info("Perfilado completado: %d dispositivos.", len(dispositivos))
     return dispositivos

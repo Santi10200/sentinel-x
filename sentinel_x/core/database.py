@@ -142,6 +142,20 @@ def inicializar_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_ml_ts ON ml_features(timestamp);
 
+            -- Lo que cada dispositivo anuncia de sí mismo (DHCP, mDNS, SSDP).
+            -- clave = MAC, o "ip:<ip>" para fuentes que solo ven la IP.
+            CREATE TABLE IF NOT EXISTS identidad_obs (
+                clave TEXT NOT NULL, fuente TEXT NOT NULL,
+                mac TEXT, ip TEXT, datos TEXT, timestamp REAL,
+                PRIMARY KEY (clave, fuente)
+            );
+
+            -- Nombres y tipos asignados a mano: el inventario como registro de activos.
+            CREATE TABLE IF NOT EXISTS etiquetas_dispositivo (
+                mac TEXT PRIMARY KEY,
+                etiqueta TEXT, tipo TEXT, notas TEXT, actualizado REAL
+            );
+
             -- Autoevaluación de subcategorías NIST CSF que la red no puede medir.
             CREATE TABLE IF NOT EXISTS nist_autoevaluacion (
                 subcategoria TEXT PRIMARY KEY,

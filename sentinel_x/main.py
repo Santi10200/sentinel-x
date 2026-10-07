@@ -60,6 +60,7 @@ with st.sidebar:
 
     estado_hilo_widget("sniffer_tls", "Sniffer TLS")
     estado_hilo_widget("sniffer_lan", "Sniffer LAN")
+    estado_hilo_widget("sniffer_identidad", "Identidad (DHCP/mDNS/SSDP)")
     estado_hilo_widget("suricata_tail", "Suricata (tail)")
     estado_hilo_widget("zeek_watch", "Zeek (watch)")
     estado_hilo_widget("ti_updater", "Threat Intel")

@@ -80,6 +80,12 @@ CONFIG = {
         "master/enterprise-attack/enterprise-attack.json"
     ),
 
+    # Bases de prefijos MAC que ya trae Kali (nmap y Wireshark): sin consultas externas.
+    "rutas_oui_sistema": [
+        "/usr/share/wireshark/manuf",
+        "/usr/share/nmap/nmap-mac-prefixes",
+    ],
+
     # ── Nmap ─────────────────────────────────────────────────────────────
     "nmap_timeout_seg": 25,
     "nmap_version_intensity": 3,

@@ -51,6 +51,7 @@ def arrancar_todo(cidr_lan: str | None = None) -> None:
             threading.Thread(target=suricata_reader.hilo_tail_suricata, daemon=True, name="suricata-tail"),
             threading.Thread(target=zeek_reader.hilo_watch_zeek, daemon=True, name="zeek-watch"),
             threading.Thread(target=ml_baseline.hilo_baseline_ml, daemon=True, name="ml-baseline"),
+            threading.Thread(target=sniffer.iniciar_sniffer_identidad, daemon=True, name="sniffer-identidad"),
         ]
         if CONFIG["ti_habilitado"]:
             hilos.append(threading.Thread(
