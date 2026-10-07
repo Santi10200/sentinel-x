@@ -84,14 +84,18 @@ def hilo_tail_suricata() -> None:
     state.estado_hilos["suricata_tail"]["activo"] = True
     state.estado_hilos["suricata_tail"]["error"] = None
 
-    if not os.path.exists(ruta):
-        msg = f"Archivo no encontrado: {ruta}"
+    if os.path.exists(ruta):
+        offset = os.path.getsize(ruta)  # arranca desde el final, no reprocesa histórico
+    else:
+        # Suricata puede arrancar después que Sentinel-X: se espera al archivo en vez
+        # de abandonar, y todo lo que escriba a partir de entonces es nuevo.
+        msg = f"Esperando a {ruta} (¿Suricata en marcha?)"
         logger.warning(msg)
         state.estado_hilos["suricata_tail"]["error"] = msg
-        state.estado_hilos["suricata_tail"]["activo"] = False
-        return
-
-    offset = os.path.getsize(ruta)  # arranca desde el final, no reprocesa histórico
+        while not os.path.exists(ruta):
+            time.sleep(5)
+        state.estado_hilos["suricata_tail"]["error"] = None
+        offset = 0
     logger.info("Tail de Suricata iniciado en %s (offset inicial: %d).", ruta, offset)
 
     while True:
