@@ -108,7 +108,7 @@ def hilo_watch_zeek() -> None:
                             if registro:
                                 with state.lock_zeek:
                                     state.eventos_zeek.append(registro)
-                                    state.estado_hilos["zeek_watch"]["procesados"] += 1
+                                    state.registrar_evento("zeek_watch")
                         offsets[tipo_log] = f.tell()
 
             time.sleep(2)

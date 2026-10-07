@@ -113,7 +113,7 @@ def hilo_tail_suricata() -> None:
                         if procesada:
                             with state.lock_alertas:
                                 state.alertas_ids.append(procesada)
-                                state.estado_hilos["suricata_tail"]["procesados"] += 1
+                                state.registrar_evento("suricata_tail")
                             database.insertar("alertas_ids", {
                                 "timestamp": procesada["Timestamp"], "fecha_hora": procesada["Fecha/Hora"],
                                 "ip_origen": procesada["IP Origen"], "ip_destino": procesada["IP Destino"],

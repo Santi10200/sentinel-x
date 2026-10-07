@@ -12,9 +12,10 @@ cuántas veces el script se re-ejecute lógicamente.
 """
 
 import threading
+import time
 
 from core.logger import get_logger
-from core import database
+from core import database, state
 from core.config import CONFIG
 from modules import sniffer, suricata_reader, zeek_reader, threat_intel, mitre_attack, ml_baseline
 
@@ -65,6 +66,10 @@ def arrancar_todo(cidr_lan: str | None = None) -> None:
                 target=sniffer.iniciar_sniffer_wifi, daemon=True, name="sniffer-wifi"
             ))
         for hilo in hilos:
+            # La UI operativa diferencia un sensor recién iniciado de uno detenido.
+            estado = state.estado_hilos.get(hilo.name.replace("-", "_"))
+            if estado is not None:
+                estado["iniciado_en"] = time.time()
             hilo.start()
             logger.info("Hilo '%s' lanzado.", hilo.name)
 

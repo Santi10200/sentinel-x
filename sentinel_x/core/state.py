@@ -11,6 +11,7 @@ importa una sola vez (Python cachea los módulos importados).
 
 import collections
 import threading
+import time
 
 from core.config import CONFIG
 
@@ -52,6 +53,15 @@ estado_hilos: dict = {
     "sniffer_identidad": {"activo": False, "error": None, "procesados": 0},
     "ml_baseline": {"activo": False, "error": None, "procesados": 0, "ultimo_entrenamiento": None},
 }
+
+
+def registrar_evento(nombre_hilo: str, cantidad: int = 1) -> None:
+    """Actualiza el contador y el último latido de una fuente de datos."""
+    info = estado_hilos.get(nombre_hilo)
+    if info is None:
+        return
+    info["procesados"] = info.get("procesados", 0) + cantidad
+    info["ultimo_evento"] = time.time()
 
 
 def snapshot(buffer: collections.deque, lock: threading.Lock) -> list:

@@ -30,7 +30,7 @@ from core.orchestrator import arrancar_todo
 from core import database
 from ui.helpers import estado_hilo_widget
 from ui import (
-    tab_resumen, tab_nist, tab_incidentes, tab_alertas, tab_dispositivos,
+    tab_sensor, tab_resumen, tab_nist, tab_incidentes, tab_alertas, tab_dispositivos,
     tab_tls, tab_lateral, tab_avanzado, tab_wifi,
 )
 
@@ -87,6 +87,7 @@ st.markdown(
 # Orden pensado para el flujo NIST: visión general -> perfil CSF -> detección y
 # respuesta -> vistas de detalle por sensor.
 _PESTANAS = [
+    ("🩺 Operación", tab_sensor),
     ("📊 Resumen", tab_resumen),
     ("🏛️ NIST CSF", tab_nist),
     ("🧩 Incidentes", tab_incidentes),

@@ -338,7 +338,9 @@ def hilo_baseline_ml() -> None:
         try:
             eventos = (state.snapshot(state.eventos_lan, state.lock_eventos_lan)
                        + state.snapshot(state.flujos_tls, state.lock_flujos_tls))
-            estado["procesados"] += persistir_features(eventos)
+            procesados = persistir_features(eventos)
+            if procesados:
+                state.registrar_evento("ml_baseline", procesados)
             if time.time() - ultimo_entreno >= CONFIG["ml_reentreno_min"] * 60:
                 entrenar_desde_historial()
                 ultimo_entreno = time.time()

@@ -50,7 +50,7 @@ def _callback_tls(pkt) -> None:
     }
     with state.lock_flujos_tls:
         state.flujos_tls.append(flujo)
-        state.estado_hilos["sniffer_tls"]["procesados"] += 1
+        state.registrar_evento("sniffer_tls")
 
     # Persistir solo ClientHello: evita una escritura SQLite por cada segmento TLS.
     if pkt.haslayer(TLSClientHello):
@@ -92,7 +92,7 @@ def _callback_lan(pkt) -> None:
             "Inicio": inicio,
             "Timestamp": time.time(), "Tamaño (bytes)": len(pkt),
         })
-        state.estado_hilos["sniffer_lan"]["procesados"] += 1
+        state.registrar_evento("sniffer_lan")
 
 
 def iniciar_sniffer_tls() -> None:
@@ -151,7 +151,7 @@ def _callback_wifi(pkt) -> None:
         return
     with state.lock_redes_wifi:
         state.redes_wifi[red["bssid"]] = red
-        state.estado_hilos["sniffer_wifi"]["procesados"] += 1
+        state.registrar_evento("sniffer_wifi")
     database.upsert_red_wifi(red)
 
 
@@ -180,7 +180,7 @@ def iniciar_sniffer_wifi() -> None:
 def _callback_identidad(pkt) -> None:
     try:
         if identidad.procesar_paquete(pkt):
-            state.estado_hilos["sniffer_identidad"]["procesados"] += 1
+            state.registrar_evento("sniffer_identidad")
     except Exception as exc:  # un paquete malformado no debe tumbar la captura
         logger.debug("Paquete de identidad no interpretable: %s", exc)
 

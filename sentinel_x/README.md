@@ -5,6 +5,10 @@ enriquece, analiza y correlaciona eventos de red en un solo dashboard, y evalúa
 la red frente a **NIST Cybersecurity Framework (CSF) 2.0** con gestión de
 incidentes según **NIST SP 800-61**.
 
+La pestaña **Operación** convierte el dashboard en un sensor operable: muestra
+salud de las fuentes, frescura de telemetría, uso de buffers y capacidad local
+de SQLite. La falta de tráfico se reporta como atención, no como una caída.
+
 ## Arquitectura (5 capas)
 
 ```
@@ -44,6 +48,9 @@ en un historial con fecha y autor que no se edita ni se borra (RS.AN-06).
 3. **Resumen**: pulsa *Ejecutar análisis completo*.
 4. **NIST CSF**: revisa el perfil, completa la autoevaluación y descarga el informe.
 5. **Incidentes**: declara un caso para cada incidente alto/crítico y regístralo hasta el cierre.
+
+Para la operación diaria, empieza por **Operación** y corrige cualquier fuente
+en estado *Error* o *Detenido* antes de confiar en las detecciones.
 
 > Escanea únicamente redes propias o con autorización expresa por escrito.
 
@@ -123,11 +130,13 @@ sentinel_x/
 │   ├── postura.py             # Exposición: servicios inseguros, CVE, texto claro, Wi-Fi
 │   ├── vulnerabilidades.py    # CPE de Nmap -> CVE del NVD + CISA KEV
 │   ├── analisis.py            # Pipeline único (misma foto para todas las vistas)
+│   ├── sensor_health.py        # Salud de fuentes, buffers y SQLite
 │   ├── nist_csf.py            # Evaluación NIST CSF 2.0
 │   ├── respuesta_incidentes.py# Casos y ciclo de vida SP 800-61
 │   └── informe.py             # Informe HTML autocontenido
 ├── ui/
 │   ├── helpers.py
+│   ├── tab_sensor.py           # Centro de operaciones del sensor
 │   ├── tab_resumen.py         # Panel general con KPIs y gráficos
 │   ├── tab_nist.py            # Perfil CSF, autoevaluación, postura, informe
 │   ├── tab_incidentes.py      # Incidentes correlacionados + casos
