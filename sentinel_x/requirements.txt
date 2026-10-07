@@ -1,6 +1,8 @@
 streamlit>=1.50
 pandas>=2.0
 scapy>=2.5
+# Scapy la usa para analizar TLS (JA3/SNI); sin ella falla con NameError: HMAC.
+cryptography>=42
 scikit-learn>=1.3
 joblib>=1.3
 plotly>=5.20
