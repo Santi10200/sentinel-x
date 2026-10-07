@@ -7,6 +7,8 @@ entre paquetes. CV bajo = comportamiento mecánico, típico de malware
 que llama a casa cada N segundos con jitter mínimo.
 
 Mejoras sobre la versión anterior:
+  - Solo se miden intervalos entre ClientHello (conexiones nuevas), no
+    entre segmentos de una misma sesión TLS.
   - ddof=0 para evitar NaN con pocas muestras.
   - Cruce con Threat Intelligence: si el destino ya es C2 conocido, la
     alerta sube de severidad inmediatamente sin esperar el patrón temporal.
@@ -34,6 +36,13 @@ def detectar(
     df = pd.DataFrame(flujos)
     columnas_req = {"Origen", "Destino", "SNI", "JA3", "Timestamp"}
     if df.empty or not columnas_req.issubset(df.columns):
+        return pd.DataFrame()
+
+    # Solo cuentan los inicios de conexión (ClientHello, que es donde hay JA3).
+    # Los demás segmentos TLS de una misma sesión llegan a ráfagas y no dicen
+    # nada sobre cada cuánto "llama a casa" el host.
+    df = df[~df["JA3"].isin(["N/A", "error-ja3"])]
+    if df.empty:
         return pd.DataFrame()
 
     alertas = []

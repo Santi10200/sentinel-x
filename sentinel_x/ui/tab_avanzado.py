@@ -1,6 +1,10 @@
 """Pestaña 6: Baseline de comportamiento (ML), logs Zeek y estado de Threat Intel."""
 
+import datetime
+import time
+
 import pandas as pd
+import plotly.express as px
 import streamlit as st
 
 from core import state
@@ -12,43 +16,72 @@ from ui.helpers import boton_exportar_csv
 def _seccion_ml() -> None:
     st.subheader("Baseline de comportamiento (Machine Learning)")
     st.markdown(
-        "Entrena un modelo `IsolationForest` por host a partir del tráfico capturado "
-        "y detecta desviaciones respecto a su propio comportamiento histórico."
+        "Un modelo `IsolationForest` por host aprende su comportamiento habitual por minuto "
+        "(bytes, paquetes, destinos, puertos y hora del día). Las features se guardan en la base "
+        f"de datos y el modelo se **reentrena solo cada {CONFIG['ml_reentreno_min']} min** con las "
+        f"últimas {CONFIG['ml_ventana_entrenamiento_horas']} h, excluyendo lo que ya era anómalo "
+        "para que un ataque sostenido no se aprenda como normal."
     )
 
-    flujos_tls = state.snapshot(state.flujos_tls, state.lock_flujos_tls)
-    eventos_lan = state.snapshot(state.eventos_lan, state.lock_eventos_lan)
-    datos_entrenamiento = eventos_lan or flujos_tls
+    estado = state.estado_hilos.get("ml_baseline", {})
+    ultimo = estado.get("ultimo_entrenamiento")
+    historial = ml_baseline.cargar_features(time.time() - CONFIG["ml_ventana_entrenamiento_horas"] * 3600)
 
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("🧠 Entrenar baseline con datos actuales"):
-            with st.spinner("Entrenando IsolationForest por host..."):
-                entrenados = ml_baseline.entrenar_baseline(datos_entrenamiento)
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Hosts con modelo", len(ml_baseline.hosts_con_modelo_entrenado()))
+    c2.metric("Minutos·host en historial", len(historial))
+    c3.metric("Último entrenamiento", time.strftime("%H:%M", time.localtime(ultimo)) if ultimo else "—")
+
+    b1, b2 = st.columns(2)
+    with b1:
+        if st.button("🧠 Reentrenar ahora"):
+            with st.spinner("Guardando features y entrenando IsolationForest por host..."):
+                ml_baseline.persistir_features(
+                    state.snapshot(state.eventos_lan, state.lock_eventos_lan)
+                    + state.snapshot(state.flujos_tls, state.lock_flujos_tls)
+                )
+                entrenados = ml_baseline.entrenar_desde_historial()
             if entrenados:
-                st.success(f"Modelos entrenados para {len(entrenados)} host(s).")
-                st.session_state["_ml_entrenados"] = entrenados
+                st.success(f"Modelos entrenados para {len(entrenados)} host(s) y guardados en disco.")
             else:
                 st.warning(
-                    f"Sin suficientes muestras todavía. Se necesitan al menos "
-                    f"{CONFIG['ml_min_muestras_entrenamiento']} ventanas de 1 minuto por host."
+                    f"Sin suficientes muestras todavía: cada host necesita al menos "
+                    f"{CONFIG['ml_min_muestras_entrenamiento']} minutos con tráfico."
                 )
-    with c2:
-        hosts_modelo = ml_baseline.hosts_con_modelo_entrenado()
-        st.metric("Hosts con modelo entrenado", len(hosts_modelo))
+    with b2:
+        if st.button("🔍 Detectar anomalías (última hora)"):
+            st.session_state["_df_anomalias_ml"] = ml_baseline.detectar_anomalias_recientes()
 
-    if st.button("🔍 Detectar anomalías"):
-        with st.spinner("Puntuando comportamiento reciente..."):
-            df_anomalias = ml_baseline.detectar_anomalias(datos_entrenamiento)
-            st.session_state["_df_anomalias_ml"] = df_anomalias
+    df_modelos = ml_baseline.resumen_modelos()
+    if not df_modelos.empty:
+        st.markdown("#### Modelos por host")
+        st.dataframe(df_modelos, width="stretch", hide_index=True)
 
     df_anomalias = st.session_state.get("_df_anomalias_ml", pd.DataFrame())
     if not df_anomalias.empty:
-        st.error(f"⚠️ {len(df_anomalias)} ventana(s) anómalas detectadas")
-        st.dataframe(df_anomalias, use_container_width=True)
+        st.error(f"⚠️ {len(df_anomalias)} minuto(s) anómalos detectados")
+        st.dataframe(df_anomalias, width="stretch", hide_index=True)
         boton_exportar_csv(df_anomalias, "anomalias_ml.csv", key="csv_ml")
     elif "_df_anomalias_ml" in st.session_state:
-        st.success("Sin anomalías detectadas respecto al baseline entrenado.")
+        st.success("Sin anomalías respecto al baseline en la última hora.")
+
+    if not historial.empty:
+        st.markdown("#### Histórico por host")
+        hosts = sorted(historial["host"].unique().tolist())
+        host = st.selectbox("Host", hosts, key="ml_host")
+        metrica = st.selectbox("Métrica", ml_baseline.FEATURES_BASE, key="ml_metrica",
+                               format_func=lambda f: f.replace("_", " ").capitalize())
+        df_h = historial[historial["host"] == host].copy()
+        df_h["Hora"] = pd.to_datetime(df_h["minuto"] * 60, unit="s", utc=True).dt.tz_convert(
+            datetime.datetime.now().astimezone().tzinfo)
+        fig = px.line(df_h, x="Hora", y=metrica, height=300, title=f"{host}: {metrica} por minuto")
+        if not df_anomalias.empty:
+            anom = df_anomalias[df_anomalias["Host"] == host]
+            marcas = df_h[df_h["Hora"].dt.strftime("%Y-%m-%d %H:%M").isin(anom["Minuto"])]
+            fig.add_scatter(x=marcas["Hora"], y=marcas[metrica], mode="markers", name="Anomalía",
+                            marker=dict(color="#c62828", size=10))
+        fig.update_layout(margin=dict(t=50, b=10))
+        st.plotly_chart(fig, width="stretch")
 
 
 def _seccion_zeek() -> None:
@@ -70,7 +103,7 @@ def _seccion_zeek() -> None:
     tipo_sel = st.selectbox("Tipo de log:", tipos_disponibles)
 
     df_tipo = df[df["tipo_log"] == tipo_sel].drop(columns=["tipo_log"]).dropna(axis=1, how="all")
-    st.dataframe(df_tipo.tail(100), use_container_width=True)
+    st.dataframe(df_tipo.tail(100), width="stretch")
     boton_exportar_csv(df_tipo, f"zeek_{tipo_sel}.csv", key=f"csv_zeek_{tipo_sel}")
 
 
@@ -84,7 +117,6 @@ def _seccion_ti() -> None:
     c3.metric("CVEs con explotación activa (KEV)", stats["cves_kev"])
 
     if stats["ultima_actualizacion"]:
-        import datetime
         ts = datetime.datetime.fromtimestamp(stats["ultima_actualizacion"])
         st.caption(f"Última actualización de feeds: {ts.strftime('%Y-%m-%d %H:%M:%S')}")
     else:

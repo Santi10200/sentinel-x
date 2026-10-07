@@ -14,6 +14,7 @@ contexto mínimo.
 """
 
 import json
+import re
 import threading
 import urllib.request
 
@@ -116,7 +117,11 @@ def extraer_tecnicas_de_alerta_suricata(evento_eve: dict) -> list[str]:
 
     firma = alerta.get("signature", "")
     if "T1" in firma:
-        import re
         tecnicas.extend(re.findall(r"T1\d{3}(?:\.\d{3})?", firma))
 
     return list(dict.fromkeys(tecnicas))  # dedup preservando orden
+
+
+def num_tecnicas_cargadas() -> int:
+    with _lock:
+        return len(_indice_tecnicas)

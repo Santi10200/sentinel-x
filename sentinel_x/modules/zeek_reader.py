@@ -76,11 +76,13 @@ def hilo_watch_zeek() -> None:
     state.estado_hilos["zeek_watch"]["error"] = None
 
     if not os.path.isdir(directorio):
-        msg = f"Directorio Zeek no encontrado: {directorio}"
+        # zeekctl crea logs/current al arrancar: se espera en vez de abandonar.
+        msg = f"Esperando a {directorio} (¿Zeek en marcha?)"
         logger.warning(msg)
         state.estado_hilos["zeek_watch"]["error"] = msg
-        state.estado_hilos["zeek_watch"]["activo"] = False
-        return
+        while not os.path.isdir(directorio):
+            time.sleep(5)
+        state.estado_hilos["zeek_watch"]["error"] = None
 
     offsets: dict[str, int] = {}
     logger.info("Watch de logs Zeek iniciado en %s.", directorio)
@@ -106,7 +108,7 @@ def hilo_watch_zeek() -> None:
                             if registro:
                                 with state.lock_zeek:
                                     state.eventos_zeek.append(registro)
-                                    state.estado_hilos["zeek_watch"]["procesados"] += 1
+                                    state.registrar_evento("zeek_watch")
                         offsets[tipo_log] = f.tell()
 
             time.sleep(2)

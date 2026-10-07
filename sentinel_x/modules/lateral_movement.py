@@ -27,10 +27,34 @@ logger = get_logger("lateral_movement")
 
 
 def _es_ip_privada(ip: str) -> bool:
+    """IP unicast interna. Multicast/broadcast (mDNS, SSDP, ARP-like) no es movimiento lateral."""
     try:
-        return ipaddress.ip_address(ip).is_private
+        direccion = ipaddress.ip_address(ip)
     except ValueError:
         return False
+    if direccion.is_multicast or direccion.is_unspecified or str(direccion) == "255.255.255.255":
+        return False
+    return direccion.is_private
+
+
+def solo_trafico_interno(df: pd.DataFrame) -> pd.DataFrame:
+    """Filas con origen y destino internos. Robusto ante DataFrames vacíos (pandas 3)."""
+    if df.empty:
+        return df
+    mascara = df["Origen"].map(_es_ip_privada).astype(bool) & df["Destino"].map(_es_ip_privada).astype(bool)
+    return df[mascara]
+
+
+def _solo_inicios(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Se queda con los intentos de conexión (SYN / petición UDP). Sin esto, un
+    servidor interno que responde a muchos clientes (gateway, DNS, NAS)
+    aparecería como un host haciendo fan-out. Eventos antiguos sin la
+    columna "Inicio" se conservan tal cual.
+    """
+    if "Inicio" not in df.columns:
+        return df
+    return df[df["Inicio"].fillna(True).astype(bool)]
 
 
 def detectar_fanout(
@@ -46,10 +70,12 @@ def detectar_fanout(
     if df.empty or not {"Origen", "Destino", "Timestamp"}.issubset(df.columns):
         return pd.DataFrame()
 
-    df = df[df["Origen"].apply(_es_ip_privada) & df["Destino"].apply(_es_ip_privada)]
+    df = _solo_inicios(df)
+    df = solo_trafico_interno(df)
     if df.empty:
         return pd.DataFrame()
 
+    df = df.copy()
     df["ventana"] = (df["Timestamp"] // ventana_seg).astype(int)
 
     resultados = []
@@ -81,7 +107,8 @@ def detectar_puertos_riesgo(eventos: list[dict]) -> pd.DataFrame:
     if df.empty or not {"Origen", "Destino", "Puerto"}.issubset(df.columns):
         return pd.DataFrame()
 
-    df = df[df["Origen"].apply(_es_ip_privada) & df["Destino"].apply(_es_ip_privada)]
+    df = _solo_inicios(df)
+    df = solo_trafico_interno(df)
     puertos_riesgo = CONFIG["lateral_puertos_riesgo"]
     df = df[df["Puerto"].isin(puertos_riesgo.keys())]
     if df.empty:

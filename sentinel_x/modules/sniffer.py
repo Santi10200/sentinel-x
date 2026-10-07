@@ -24,7 +24,7 @@ from core.logger import get_logger
 from core import state, database
 from core.network_iface import interfaz_configurada
 from modules import tls_analysis
-from modules import wifi_security
+from modules import wifi_security, identidad
 
 logger = get_logger("sniffer")
 
@@ -50,7 +50,7 @@ def _callback_tls(pkt) -> None:
     }
     with state.lock_flujos_tls:
         state.flujos_tls.append(flujo)
-        state.estado_hilos["sniffer_tls"]["procesados"] += 1
+        state.registrar_evento("sniffer_tls")
 
     # Persistir solo ClientHello: evita una escritura SQLite por cada segmento TLS.
     if pkt.haslayer(TLSClientHello):
@@ -62,23 +62,37 @@ def _callback_tls(pkt) -> None:
         })
 
 
+def es_inicio_udp(puerto_src: int, puerto_dst: int) -> bool:
+    """
+    UDP no tiene handshake: se asume que habla el cliente cuando sale de un
+    puerto efímero hacia uno de servicio. Una respuesta (servicio -> efímero)
+    no cuenta, así un servidor DNS/DHCP no parece "escanear" a sus clientes.
+    """
+    return not (puerto_src < 1024 and puerto_dst >= 1024)
+
+
 def _callback_lan(pkt) -> None:
     if not (pkt.haslayer(IP) and (pkt.haslayer(TCP) or pkt.haslayer(UDP))):
         return
 
     ip_src, ip_dst = pkt[IP].src, pkt[IP].dst
     if pkt.haslayer(TCP):
-        puerto_dst, proto = pkt[TCP].dport, "TCP"
+        tcp = pkt[TCP]
+        puerto_src, puerto_dst, proto = tcp.sport, tcp.dport, "TCP"
+        # SYN sin ACK = intento de conexión nuevo; el resto son datos o respuestas.
+        inicio = bool(tcp.flags & 0x02) and not bool(tcp.flags & 0x10)
     else:
-        puerto_dst, proto = pkt[UDP].dport, "UDP"
+        puerto_src, puerto_dst, proto = pkt[UDP].sport, pkt[UDP].dport, "UDP"
+        inicio = es_inicio_udp(puerto_src, puerto_dst)
 
     with state.lock_eventos_lan:
         state.eventos_lan.append({
             "Origen": ip_src, "Destino": ip_dst,
-            "Puerto": puerto_dst, "Proto": proto,
+            "Puerto origen": puerto_src, "Puerto": puerto_dst, "Proto": proto,
+            "Inicio": inicio,
             "Timestamp": time.time(), "Tamaño (bytes)": len(pkt),
         })
-        state.estado_hilos["sniffer_lan"]["procesados"] += 1
+        state.registrar_evento("sniffer_lan")
 
 
 def iniciar_sniffer_tls() -> None:
@@ -137,7 +151,7 @@ def _callback_wifi(pkt) -> None:
         return
     with state.lock_redes_wifi:
         state.redes_wifi[red["bssid"]] = red
-        state.estado_hilos["sniffer_wifi"]["procesados"] += 1
+        state.registrar_evento("sniffer_wifi")
     database.upsert_red_wifi(red)
 
 
@@ -161,3 +175,36 @@ def iniciar_sniffer_wifi() -> None:
         state.estado_hilos["sniffer_wifi"]["error"] = str(exc)
     finally:
         state.estado_hilos["sniffer_wifi"]["activo"] = False
+
+
+def _callback_identidad(pkt) -> None:
+    try:
+        if identidad.procesar_paquete(pkt):
+            state.registrar_evento("sniffer_identidad")
+    except Exception as exc:  # un paquete malformado no debe tumbar la captura
+        logger.debug("Paquete de identidad no interpretable: %s", exc)
+
+
+def iniciar_sniffer_identidad() -> None:
+    """
+    Escucha pasiva de DHCP, mDNS y SSDP: lo que los dispositivos anuncian
+    de sí mismos (hostname, modelo, sistema). Va aparte del sniffer LAN
+    porque las peticiones DHCP salen de 0.0.0.0 hacia 255.255.255.255 y
+    no entran en su filtro "net <cidr>".
+    """
+    iface = interfaz_configurada()
+    state.estado_hilos["sniffer_identidad"]["activo"] = True
+    state.estado_hilos["sniffer_identidad"]["error"] = None
+    logger.info("Sniffer de identidad (DHCP/mDNS/SSDP) iniciado en '%s'.", iface)
+    try:
+        sniff(iface=iface, filter="udp and (port 67 or port 68 or port 5353 or port 1900)",
+              prn=_callback_identidad, store=0)
+    except PermissionError:
+        msg = "Sin permisos. Ejecuta con sudo o CAP_NET_RAW."
+        logger.error(msg)
+        state.estado_hilos["sniffer_identidad"]["error"] = msg
+    except Exception as exc:
+        logger.error("Error en sniffer de identidad: %s", exc)
+        state.estado_hilos["sniffer_identidad"]["error"] = str(exc)
+    finally:
+        state.estado_hilos["sniffer_identidad"]["activo"] = False

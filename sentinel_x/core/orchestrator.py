@@ -12,11 +12,12 @@ cuántas veces el script se re-ejecute lógicamente.
 """
 
 import threading
+import time
 
 from core.logger import get_logger
-from core import database
+from core import database, state
 from core.config import CONFIG
-from modules import sniffer, suricata_reader, zeek_reader, threat_intel, mitre_attack
+from modules import sniffer, suricata_reader, zeek_reader, threat_intel, mitre_attack, ml_baseline
 
 logger = get_logger("orchestrator")
 
@@ -50,6 +51,8 @@ def arrancar_todo(cidr_lan: str | None = None) -> None:
             ),
             threading.Thread(target=suricata_reader.hilo_tail_suricata, daemon=True, name="suricata-tail"),
             threading.Thread(target=zeek_reader.hilo_watch_zeek, daemon=True, name="zeek-watch"),
+            threading.Thread(target=ml_baseline.hilo_baseline_ml, daemon=True, name="ml-baseline"),
+            threading.Thread(target=sniffer.iniciar_sniffer_identidad, daemon=True, name="sniffer-identidad"),
         ]
         if CONFIG["ti_habilitado"]:
             hilos.append(threading.Thread(
@@ -63,6 +66,10 @@ def arrancar_todo(cidr_lan: str | None = None) -> None:
                 target=sniffer.iniciar_sniffer_wifi, daemon=True, name="sniffer-wifi"
             ))
         for hilo in hilos:
+            # La UI operativa diferencia un sensor recién iniciado de uno detenido.
+            estado = state.estado_hilos.get(hilo.name.replace("-", "_"))
+            if estado is not None:
+                estado["iniciado_en"] = time.time()
             hilo.start()
             logger.info("Hilo '%s' lanzado.", hilo.name)
 

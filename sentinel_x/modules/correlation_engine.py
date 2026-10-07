@@ -52,9 +52,13 @@ def correlacionar(
 
     if not df_beacons.empty:
         for _, fila in df_beacons.iterrows():
+            # El activo a investigar es el host local que "llama a casa"; así el
+            # beacon se corrobora con fan-out/ML/IDS del mismo equipo.
             _registrar(
-                fila.get("IP Destino", ""), "Beaconing C2", fila.get("Severidad", "Media"),
-                f"Beacon hacia {fila.get('Destino (SNI)', '?')} ({fila.get('Razones', '')})",
+                fila.get("IP Local", ""), "Beaconing C2", fila.get("Severidad", "Media"),
+                f"Beacon hacia {fila.get('Destino (SNI)', '?')} [{fila.get('IP Destino', '?')}] "
+                f"({fila.get('Razones', '')})",
+                "T1071.001",
             )
 
     if not df_fanout.empty:

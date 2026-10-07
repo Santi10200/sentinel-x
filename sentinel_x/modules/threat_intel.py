@@ -15,9 +15,7 @@ hacen red en el camino caliente del sniffer.
 """
 
 import csv
-import io
 import json
-import threading
 import time
 import urllib.request
 
@@ -133,11 +131,13 @@ def verificar_dominio(dominio: str) -> dict | None:
     """Devuelve hit de URLhaus si el dominio/SNI coincide."""
     if not dominio:
         return None
-    dominio = dominio.lower()
+    etiquetas = dominio.lower().rstrip(".").split(".")
+    # Comprueba el dominio y cada sufijo padre (a.b.mal.com -> b.mal.com -> mal.com):
+    # O(nº de etiquetas) en vez de recorrer todo el feed en cada consulta.
+    candidatos = {".".join(etiquetas[i:]) for i in range(len(etiquetas))}
     with state.lock_ti_cache:
-        for malo in _dominios_maliciosos:
-            if dominio == malo or dominio.endswith("." + malo):
-                return {"malicioso": True, "fuente": "URLhaus (malware/phishing)"}
+        if candidatos & _dominios_maliciosos:
+            return {"malicioso": True, "fuente": "URLhaus (malware/phishing)"}
     return None
 
 

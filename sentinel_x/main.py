@@ -2,12 +2,13 @@
 Sentinel-X v2: Plataforma unificada de monitoreo de seguridad de red.
 =======================================================================
 
-Arquitectura en 4 capas (ver README.md para el diagrama completo):
+Arquitectura en 5 capas (ver README.md para el diagrama completo):
 
   1. Captura     -> modules/sniffer.py, suricata_reader.py, zeek_reader.py
   2. Enriquecimiento -> modules/tls_analysis.py, device_profiler.py, threat_intel.py
-  3. Análisis    -> modules/beaconing.py, lateral_movement.py, ml_baseline.py
-  4. Correlación y presentación -> modules/correlation_engine.py, ui/*, core/database.py
+  3. Análisis    -> modules/beaconing.py, lateral_movement.py, ml_baseline.py, postura.py
+  4. Correlación y presentación -> modules/correlation_engine.py, analisis.py, ui/*
+  5. Gobierno y respuesta -> modules/nist_csf.py, respuesta_incidentes.py, informe.py
 
 Todo el estado compartido entre hilos vive en core/state.py (nunca en
 st.session_state) para evitar deadlocks y duplicación de hilos en cada
@@ -29,7 +30,7 @@ from core.orchestrator import arrancar_todo
 from core import database
 from ui.helpers import estado_hilo_widget
 from ui import (
-    tab_incidentes, tab_alertas, tab_dispositivos,
+    tab_sensor, tab_resumen, tab_nist, tab_incidentes, tab_alertas, tab_dispositivos,
     tab_tls, tab_lateral, tab_avanzado, tab_wifi,
 )
 
@@ -59,9 +60,11 @@ with st.sidebar:
 
     estado_hilo_widget("sniffer_tls", "Sniffer TLS")
     estado_hilo_widget("sniffer_lan", "Sniffer LAN")
+    estado_hilo_widget("sniffer_identidad", "Identidad (DHCP/mDNS/SSDP)")
     estado_hilo_widget("suricata_tail", "Suricata (tail)")
     estado_hilo_widget("zeek_watch", "Zeek (watch)")
     estado_hilo_widget("ti_updater", "Threat Intel")
+    estado_hilo_widget("ml_baseline", "Baseline ML")
     if CONFIG["wifi_monitor_iface"]:
         estado_hilo_widget("sniffer_wifi", "Sniffer Wi-Fi")
 
@@ -81,30 +84,24 @@ st.markdown(
     "Captura, enriquecimiento, análisis y correlación de eventos de red en una sola plataforma."
 )
 
-tabs = st.tabs([
-    "Wi-Fi",
-    "🧩 Incidentes",
-    "🚦 Alertas IDS",
-    "🔍 Dispositivos",
-    "📡 TLS / JA3",
-    "↔️ Mov. lateral",
-    "🧠 ML / Zeek / TI",
-])
+# Orden pensado para el flujo NIST: visión general -> perfil CSF -> detección y
+# respuesta -> vistas de detalle por sensor.
+_PESTANAS = [
+    ("🩺 Operación", tab_sensor),
+    ("📊 Resumen", tab_resumen),
+    ("🏛️ NIST CSF", tab_nist),
+    ("🧩 Incidentes", tab_incidentes),
+    ("🚦 Alertas IDS", tab_alertas),
+    ("🔍 Dispositivos", tab_dispositivos),
+    ("📡 TLS / JA3", tab_tls),
+    ("↔️ Mov. lateral", tab_lateral),
+    ("📶 Wi-Fi", tab_wifi),
+    ("🧠 ML / Zeek / TI", tab_avanzado),
+]
 
-with tabs[0]:
-    tab_wifi.render()
-with tabs[1]:
-    tab_incidentes.render()
-with tabs[2]:
-    tab_alertas.render()
-with tabs[3]:
-    tab_dispositivos.render()
-with tabs[4]:
-    tab_tls.render()
-with tabs[5]:
-    tab_lateral.render()
-with tabs[6]:
-    tab_avanzado.render()
+for pestana, (_, modulo) in zip(st.tabs([nombre for nombre, _ in _PESTANAS]), _PESTANAS):
+    with pestana:
+        modulo.render()
 
 # ── Auto-refresco ─────────────────────────────────────────────────────────
 if auto_refresh:
