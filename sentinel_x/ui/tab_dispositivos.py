@@ -57,10 +57,19 @@ def _seccion_cve() -> None:
         return
     df = pd.DataFrame(filas)
     df["KEV"] = df["kev"].map(lambda k: "🔥 Sí" if k else "—")
-    df = df[["ip", "puerto", "servicio", "cve", "cvss", "severidad", "KEV", "descripcion"]].rename(columns={
+    df = df[["ip", "puerto", "servicio", "cve", "cvss", "severidad", "KEV",
+             "aplicabilidad", "requisito", "descripcion"]].rename(columns={
         "ip": "IP", "puerto": "Puerto", "servicio": "Servicio", "cve": "CVE", "cvss": "CVSS",
-        "severidad": "Severidad", "descripcion": "Descripción",
+        "severidad": "Severidad", "aplicabilidad": "Aplicabilidad", "requisito": "Requisito",
+        "descripcion": "Descripción",
     })
+    a1, a2, a3 = st.columns(3)
+    for col, nivel, ayuda in (
+        (a1, "Probable", "Explotable con la configuración por defecto"),
+        (a2, "Condicional", "Solo si hay una función concreta activa (IPv6, DNSSEC, TFTP...)"),
+        (a3, "Improbable", "Requiere un entorno que no corresponde (p. ej. libvirt)"),
+    ):
+        col.metric(f"CVE {nivel.lower()}s", int((df["Aplicabilidad"] == nivel).sum()), help=ayuda)
     g1, g2 = st.columns([1, 2])
     with g1:
         fig = px.histogram(df, x="CVSS", nbins=10, range_x=[0, 10], height=260, title="Distribución CVSS")
@@ -70,7 +79,9 @@ def _seccion_cve() -> None:
         solo_kev = st.toggle("Solo explotadas activamente (KEV)", value=False)
         severidades = st.multiselect("Severidad", ["Crítica", "Alta", "Media", "Baja"],
                                      default=["Crítica", "Alta", "Media", "Baja"], key="cve_sev")
-    df_f = df[df["Severidad"].isin(severidades)]
+        aplicabilidades = st.multiselect("Aplicabilidad", ["Probable", "Condicional", "Improbable"],
+                                         default=["Probable", "Condicional"], key="cve_apl")
+    df_f = df[df["Severidad"].isin(severidades) & df["Aplicabilidad"].isin(aplicabilidades)]
     if solo_kev:
         df_f = df_f[df_f["KEV"] != "—"]
     df_vista = df_f.copy()
@@ -78,7 +89,10 @@ def _seccion_cve() -> None:
     st.dataframe(df_vista, width="stretch", hide_index=True, column_config={
         "CVE": st.column_config.LinkColumn("CVE", display_text=r"https://nvd\.nist\.gov/vuln/detail/(.*)"),
     })
-    st.caption("Resultados según la versión anunciada: verifica parches retroportados de tu distribución.")
+    st.caption(
+        "Ordenados por aplicabilidad y CVSS. La aplicabilidad se deduce de la descripción del NVD "
+        "y la versión anunciada puede no reflejar parches retroportados: verifica la configuración real."
+    )
     boton_exportar_csv(df_f, "vulnerabilidades_cve.csv", key="csv_cve")
 
 

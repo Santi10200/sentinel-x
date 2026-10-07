@@ -25,6 +25,7 @@ versión principal). Los resultados son candidatos a verificar, no
 vulnerabilidades confirmadas.
 """
 
+import html
 import json
 import re
 import threading
@@ -87,6 +88,52 @@ def candidatos_cpe(cpe22: str) -> list[str]:
     return candidatos
 
 
+# ── Descripción y aplicabilidad ──────────────────────────────────────────
+
+def limpiar_descripcion(texto: str, limite: int = 900) -> str:
+    """
+    Las traducciones del NVD traen entidades HTML (&#xa0;) y saltos de línea.
+    Se decodifican, se normalizan los espacios y, si hay que recortar, se
+    corta en un límite de palabra con "…" en vez de a mitad de palabra.
+    """
+    texto = re.sub(r"\s+", " ", html.unescape(texto or "")).strip()
+    if len(texto) <= limite:
+        return texto
+    return texto[:limite].rsplit(" ", 1)[0].rstrip(".,;: ") + "…"
+
+
+# (requisito, patrones en la descripción, aplicabilidad si se cumple).
+# Un CVE de dnsmasq que solo afecta con DNSSEC activo no pesa igual que uno
+# explotable con la configuración por defecto; el CVSS no distingue eso.
+_REQUISITOS: list[tuple[str, tuple[str, ...], str]] = [
+    ("Entorno libvirt (virtualización)", ("libvirt",), "Improbable"),
+    ("DNSSEC activado", ("dnssec",), "Condicional"),
+    ("IPv6 / DHCPv6", ("ipv6", "dhcpv6", "router advertisement", "anuncio de router"), "Condicional"),
+    ("TFTP activado", ("tftp",), "Condicional"),
+    ("Opciones --add-mac/--add-subnet/--add-cpe-id", ("--add-mac", "--add-subnet", "--add-cpe-id"), "Condicional"),
+    ("Modo relay DHCP", ("relay", "retransmisor"), "Condicional"),
+]
+_ORDEN_APLICABILIDAD = {"Probable": 0, "Condicional": 1, "Improbable": 2}
+
+
+def evaluar_aplicabilidad(descripcion: str) -> tuple[str, str]:
+    """
+    ('Probable' | 'Condicional' | 'Improbable', requisitos). Heurística por
+    palabras clave de la descripción del NVD: orienta la priorización, pero
+    la configuración real del equipo es la que decide.
+    """
+    texto = (descripcion or "").lower()
+    # "compilado sin DNSSEC" / "without IPv6" niegan el requisito, no lo exigen.
+    texto = re.sub(r"\b(?:sin|without|no)\s+(?:dnssec|ipv6|dhcpv6|tftp)\b", " ", texto)
+    requisitos, aplicabilidad = [], "Probable"
+    for etiqueta, patrones, nivel in _REQUISITOS:
+        if any(p in texto for p in patrones):
+            requisitos.append(etiqueta)
+            if _ORDEN_APLICABILIDAD[nivel] > _ORDEN_APLICABILIDAD[aplicabilidad]:
+                aplicabilidad = nivel
+    return aplicabilidad, ", ".join(requisitos) or "Ninguno (configuración por defecto)"
+
+
 # ── NVD ──────────────────────────────────────────────────────────────────
 
 def severidad_desde_cvss(cvss: float | None, en_kev: bool = False) -> str:
@@ -127,7 +174,7 @@ def parsear_respuesta_nvd(datos: dict) -> list[dict]:
         resultado.append({
             "cve": cve["id"],
             "cvss": _cvss(cve.get("metrics", {})),
-            "descripcion": (descripciones.get("es") or descripciones.get("en") or "")[:400],
+            "descripcion": limpiar_descripcion(descripciones.get("es") or descripciones.get("en") or ""),
         })
     return resultado
 
@@ -262,9 +309,15 @@ def buscar_vulnerabilidades(
 
 
 def vulnerabilidades_guardadas() -> list[dict]:
-    return database.consultar(
-        "SELECT * FROM vulnerabilidades ORDER BY kev DESC, cvss DESC, ip, puerto"
-    )
+    """CVE guardados con descripción limpia y aplicabilidad, priorizados."""
+    filas = database.consultar("SELECT * FROM vulnerabilidades")
+    for f in filas:
+        # Limpia también lo guardado por versiones anteriores (entidades HTML, cortes).
+        f["descripcion"] = limpiar_descripcion(f.get("descripcion") or "")
+        f["aplicabilidad"], f["requisito"] = evaluar_aplicabilidad(f["descripcion"])
+    filas.sort(key=lambda f: (_ORDEN_APLICABILIDAD[f["aplicabilidad"]], -(f["kev"] or 0),
+                              -(f["cvss"] or 0), f["ip"] or "", f["puerto"] or 0))
+    return filas
 
 
 def hallazgos_postura(filas: list[dict], max_ids: int = 3) -> list[dict]:
@@ -278,14 +331,27 @@ def hallazgos_postura(filas: list[dict], max_ids: int = 3) -> list[dict]:
         grupos.setdefault((f["ip"], f["puerto"]), []).append(f)
 
     hallazgos = []
-    for (ip, puerto), cves in grupos.items():
-        cves.sort(key=lambda c: (-c["kev"], -(c["cvss"] or 0)))
-        peor = min((c["severidad"] for c in cves), key=lambda s: orden.get(s, 9))
+    for (ip, puerto), todos in grupos.items():
+        for c in todos:
+            if "aplicabilidad" not in c:
+                c["aplicabilidad"], c["requisito"] = evaluar_aplicabilidad(c.get("descripcion", ""))
+        # Los improbables (p. ej. solo con libvirt) no cuentan para la severidad.
+        cves = [c for c in todos if c["aplicabilidad"] != "Improbable"]
+        if not cves:
+            continue
+        cves.sort(key=lambda c: (_ORDEN_APLICABILIDAD[c["aplicabilidad"]], -c["kev"], -(c["cvss"] or 0)))
+        # Severidad del peor CVE probable; si todos dependen de configuración, la del peor condicional.
+        base = [c for c in cves if c["aplicabilidad"] == "Probable"] or cves
+        peor = min((c["severidad"] for c in base), key=lambda s: orden.get(s, 9))
         en_kev = [c["cve"] for c in cves if c["kev"]]
-        max_cvss = max((c["cvss"] or 0 for c in cves), default=0)
+        max_cvss = max((c["cvss"] or 0 for c in base), default=0)
         ids = ", ".join(c["cve"] for c in cves[:max_ids])
-        detalle = (f"{cves[0]['servicio']} en {puerto}/tcp: {len(cves)} CVE (CVSS máx. {max_cvss:.1f}"
-                   + (f", {len(en_kev)} en CISA KEV" if en_kev else "") + f"). Ej.: {ids}")
+        conteo = {n: sum(1 for c in todos if c["aplicabilidad"] == n) for n in _ORDEN_APLICABILIDAD}
+        detalle = (f"{cves[0]['servicio']} en {puerto}/tcp: {len(todos)} CVE "
+                   f"({conteo['Probable']} probables, {conteo['Condicional']} condicionales"
+                   + (f", {conteo['Improbable']} improbables" if conteo["Improbable"] else "")
+                   + f"; CVSS máx. aplicable {max_cvss:.1f}"
+                   + (f", {len(en_kev)} en CISA KEV" if en_kev else "") + f"). Prioridad: {ids}")
         recomendacion = f"Actualizar {cves[0]['servicio']} a una versión corregida"
         recomendacion += (f"; prioridad inmediata por explotación activa ({', '.join(en_kev[:3])})."
                           if en_kev else "; verificar si la distribución ya aplicó el parche (backport).")

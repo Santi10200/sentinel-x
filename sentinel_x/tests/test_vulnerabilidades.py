@@ -114,3 +114,34 @@ def test_reescaneo_sin_nmap_no_borra_servicios(db):
     db.upsert_inventario({"ip": "10.0.0.2", "mac": "aa", "fabricante": "X"})
     fila = db.consultar("SELECT * FROM inventario_red")[0]
     assert fila["puertos_abiertos"] == "22/tcp, 80/tcp" and fila["fabricante"] == "X"
+
+
+def test_limpiar_descripcion():
+    assert v.limpiar_descripcion("Fallo en dnsmasq.&#xa0;Un  atacante\npuede") == "Fallo en dnsmasq. Un atacante puede"
+    largo = "palabra " * 200
+    recorte = v.limpiar_descripcion(largo, limite=50)
+    assert recorte.endswith("…") and len(recorte) <= 51 and "palabr…" not in recorte
+
+
+def test_aplicabilidad_por_requisitos():
+    assert v.evaluar_aplicabilidad("Heap overflow via crafted DNS response")[0] == "Probable"
+    apl, req = v.evaluar_aplicabilidad("petición manipulada de anuncio de router IPv6")
+    assert apl == "Condicional" and "IPv6" in req
+    apl, req = v.evaluar_aplicabilidad("cuando DNSSEC está habilitado")
+    assert apl == "Condicional" and req == "DNSSEC activado"
+    assert v.evaluar_aplicabilidad("con ciertas configuraciones de libvirt, DNSSEC")[0] == "Improbable"
+    # DNSpooq (CVE-2020-25685): la mención es una negación, aplica sin DNSSEC.
+    assert v.evaluar_aplicabilidad("hash débil (CRC32 cuando dnsmasq se compila sin DNSSEC, SHA-1 cuando lo es)")[0] == "Probable"
+
+
+def test_postura_ignora_improbables_y_prioriza_probables():
+    base = {"ip": "10.0.0.1", "puerto": 53, "servicio": "dnsmasq 2.45", "kev": 0}
+    filas = [
+        {**base, "cve": "CVE-A", "cvss": 9.8, "severidad": "Crítica", "descripcion": "desbordamiento vía DHCPv6"},
+        {**base, "cve": "CVE-B", "cvss": 7.5, "severidad": "Alta", "descripcion": "respuesta DNS manipulada"},
+        {**base, "cve": "CVE-C", "cvss": 10.0, "severidad": "Crítica", "descripcion": "solo con libvirt"},
+    ]
+    h = v.hallazgos_postura(filas)[0]
+    assert h["Severidad"] == "Alta"  # el 9.8 depende de IPv6 y el 10.0 no aplica
+    assert h["Detalle"].endswith("Prioridad: CVE-B, CVE-A")
+    assert "1 probables, 1 condicionales, 1 improbables" in h["Detalle"]
