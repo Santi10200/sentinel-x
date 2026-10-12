@@ -12,12 +12,27 @@ de SQLite. La falta de tráfico se reporta como atención, no como una caída.
 ## Arquitectura (5 capas)
 
 ```
-Captura          -> Scapy (TLS + LAN + Wi-Fi pasivo) · Suricata (tail -F) · Zeek (watch)
-Enriquecimiento  -> JA3 completo · OUI/DNS/DHCP/Nmap · Threat Intel · MITRE ATT&CK
+Captura          -> Scapy (TLS + LAN + Wi-Fi pasivo) · Suricata (tail -F) · Zeek (watch/importación)
+Enriquecimiento  -> Normalización Zeek · JA3 completo · OUI/DNS/DHCP/Nmap · Threat Intel · MITRE ATT&CK
 Análisis         -> Beaconing+DGA · Movimiento lateral · Baseline ML · Postura (exposición)
 Correlación      -> Motor que une todo en incidentes con severidad combinada
-Gobierno/Resp.   -> Perfil NIST CSF 2.0 · Casos SP 800-61 · Informe HTML exportable
+Gobierno/Resp.   -> Manifiesto SHA-256 de evidencia · NIST CSF 2.0 · Casos SP 800-61 · Informe HTML
 ```
+
+### Referentes estudiados y decisión de diseño
+
+| Referente | Patrón evaluado | Decisión propia en Sentinel-X |
+|---|---|---|
+| [Zeek](https://github.com/zeek/zeek) | Analizar tráfico histórico y producir logs semánticos | Aceptado: `conn.log` importado se normaliza y entra al mismo pipeline LAN. |
+| [RITA](https://github.com/activecm/rita) | Caza de C2 con periodicidad, TI y datos Zeek | Ya aplicado en el detector local de beaconing; no se incorpora RITA ni Docker. |
+| [Sigma](https://github.com/SigmaHQ/sigma) | Detecciones con metadatos y procedencia | Aceptado: cada importación registra nombre, tipo, contadores y SHA-256. |
+| [Arkime](https://github.com/arkime/arkime) | Retención e indexación de PCAP a gran escala | No aplicable al laboratorio: se evita retener PCAP y datos sensibles en el dashboard. |
+| [TheHive](https://github.com/TheHive-Project/TheHive) | Gestión colaborativa de casos | No se integra: los casos SP 800-61 locales cubren el objetivo actual sin otra plataforma. |
+
+La función de importación se escribió desde cero para Sentinel-X; no usa código,
+contenedores ni dependencias de estos proyectos. Solo admite formatos ya
+producidos por Zeek y procesa la evidencia localmente, con límites de tamaño,
+tipo y eventos para proteger el sensor.
 
 ## Enfoque NIST
 
@@ -99,6 +114,8 @@ requieren privilegios elevados (CAP_NET_RAW / CAP_NET_ADMIN como mínimo).
 | `SENTINEL_NVD_API_KEY` | — | Clave gratuita del NVD: ~10x más consultas de CVE por minuto |
 | `SENTINEL_ML_RETRAIN_MIN` | `60` | Cada cuántos minutos se reentrena el baseline ML |
 | `SENTINEL_ML_MODELS_PATH` | `data/ml_modelos.joblib` | Dónde se guardan los modelos ML |
+| `SENTINEL_EVIDENCE_MAX_BYTES` | `20971520` | Tamaño máximo de un log Zeek importado |
+| `SENTINEL_EVIDENCE_MAX_EVENTS` | `5000` | Máximo de líneas válidas incorporadas por importación |
 | `SENTINEL_WIFI_MONITOR_IFACE` | — | Interfaz ya en modo monitor (ej. `wlan0mon`) para auditar Wi-Fi |
 
 ## Estructura del proyecto
@@ -117,6 +134,7 @@ sentinel_x/
 │   ├── sniffer.py             # Captura Scapy (TLS + LAN + Wi-Fi)
 │   ├── suricata_reader.py     # Tail en vivo de eve.json
 │   ├── zeek_reader.py         # Watch de logs Zeek
+│   ├── evidence_import.py     # Importación Zeek limitada y con manifiesto SHA-256
 │   ├── tls_analysis.py        # JA3 completo + DGA
 │   ├── device_profiler.py     # ARP + OUI + DNS + DHCP + Nmap
 │   ├── identidad.py           # Modelo real: DHCP, mDNS, UPnP, MAC privada, etiquetas
