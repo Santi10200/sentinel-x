@@ -161,6 +161,19 @@ def inicializar_db() -> None:
                 subcategoria TEXT PRIMARY KEY,
                 estado TEXT, nota TEXT, actualizado REAL
             );
+
+            -- Manifiesto inmutable de evidencia importada. No conserva el
+            -- contenido ni una ruta local completa, solo su huella y resultado.
+            CREATE TABLE IF NOT EXISTS importaciones_evidencia (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL NOT NULL,
+                archivo TEXT NOT NULL, tipo_log TEXT NOT NULL,
+                sha256 TEXT NOT NULL, tamano_bytes INTEGER NOT NULL,
+                lineas INTEGER NOT NULL, aceptados INTEGER NOT NULL,
+                rechazados INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_evidencia_importada_ts
+                ON importaciones_evidencia(timestamp);
         """)
         _migrar(conn)
         conn.commit()
@@ -192,6 +205,29 @@ def insertar(tabla: str, registro: dict) -> int | None:
             return cursor.lastrowid
         except sqlite3.Error as exc:
             logger.error("Error insertando en %s: %s", tabla, exc)
+            return None
+
+
+def registrar_importacion_evidencia(registro: dict) -> int | None:
+    """Guarda el manifiesto de una importación, sin almacenar el artefacto."""
+    campos = (
+        "timestamp", "archivo", "tipo_log", "sha256", "tamano_bytes",
+        "lineas", "aceptados", "rechazados",
+    )
+    if set(registro) != set(campos):
+        raise ValueError("Manifiesto de evidencia incompleto")
+    with _lock_db:
+        try:
+            conn = _get_conn()
+            cursor = conn.execute(
+                f"INSERT INTO importaciones_evidencia ({', '.join(campos)}) "
+                f"VALUES ({', '.join('?' for _ in campos)})",
+                [registro[campo] for campo in campos],
+            )
+            conn.commit()
+            return cursor.lastrowid
+        except sqlite3.Error as exc:
+            logger.error("Error registrando manifiesto de evidencia: %s", exc)
             return None
 
 

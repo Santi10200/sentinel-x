@@ -35,6 +35,12 @@ CONFIG = {
     "buffer_max_zeek": int(os.getenv("SENTINEL_MAX_ZEEK", "20000")),
     "buffer_max_incidentes": int(os.getenv("SENTINEL_MAX_INCIDENTS", "2000")),
 
+    # ── Importación de evidencia ─────────────────────────────────────────
+    # Los ficheros se procesan localmente y con límites explícitos para que
+    # un artefacto de laboratorio no agote la memoria del dashboard.
+    "evidencia_max_bytes": int(os.getenv("SENTINEL_EVIDENCE_MAX_BYTES", str(20 * 1024 * 1024))),
+    "evidencia_max_eventos": int(os.getenv("SENTINEL_EVIDENCE_MAX_EVENTS", "5000")),
+
     # ── Beaconing / C2 ───────────────────────────────────────────────────
     "beacon_min_paquetes": 5,
     "beacon_umbral_cv": 0.10,
