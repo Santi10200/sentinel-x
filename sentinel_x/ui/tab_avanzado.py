@@ -9,7 +9,7 @@ import streamlit as st
 
 from core import state
 from core.config import CONFIG
-from modules import ml_baseline, threat_intel
+from modules import evidence_import, ml_baseline, threat_intel
 from ui.helpers import boton_exportar_csv
 
 
@@ -107,6 +107,39 @@ def _seccion_zeek() -> None:
     boton_exportar_csv(df_tipo, f"zeek_{tipo_sel}.csv", key=f"csv_zeek_{tipo_sel}")
 
 
+def _seccion_evidencia_zeek() -> None:
+    st.subheader("Importar evidencia Zeek")
+    st.markdown(
+        "Carga un único log JSON-lines generado por Zeek (`conn.log`, `dns.log`, `ssl.log`, "
+        "`http.log`, `files.log` o `notice.log`). El archivo no se conserva: Sentinel-X "
+        "guarda solo un manifiesto con su SHA-256, tamaño y resultado de la validación."
+    )
+    archivo = st.file_uploader("Log Zeek JSON-lines", type=["log"], key="evidencia_zeek")
+    if archivo and st.button("📥 Validar e incorporar", key="importar_evidencia_zeek"):
+        try:
+            resultado = evidence_import.importar_zeek_jsonl(archivo.name, archivo.getvalue())
+        except (TypeError, ValueError) as exc:
+            st.error(str(exc))
+        else:
+            st.success(
+                f"Evidencia incorporada: {resultado['aceptados']} líneas válidas, "
+                f"{resultado['rechazados']} rechazadas."
+            )
+            if resultado["eventos_lan"]:
+                st.info(
+                    f"{resultado['eventos_lan']} conexiones se añadieron al pipeline de análisis "
+                    "de movimiento lateral y baseline ML."
+                )
+            st.code(f"SHA-256: {resultado['sha256']}")
+
+    manifiestos = evidence_import.importaciones_recientes()
+    if manifiestos:
+        df = pd.DataFrame(manifiestos)
+        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s").dt.strftime("%Y-%m-%d %H:%M:%S")
+        st.markdown("#### Manifiestos recientes")
+        st.dataframe(df, width="stretch", hide_index=True)
+
+
 def _seccion_ti() -> None:
     st.subheader("Threat Intelligence")
     stats = threat_intel.estadisticas_feeds()
@@ -132,10 +165,14 @@ def _seccion_ti() -> None:
 def render() -> None:
     st.header("Baseline ML · Zeek · Threat Intelligence")
 
-    sub1, sub2, sub3 = st.tabs(["🧠 Baseline ML", "📜 Logs Zeek", "🌐 Threat Intel"])
+    sub1, sub2, sub3, sub4 = st.tabs(
+        ["🧠 Baseline ML", "📜 Logs Zeek", "📥 Evidencia", "🌐 Threat Intel"]
+    )
     with sub1:
         _seccion_ml()
     with sub2:
         _seccion_zeek()
     with sub3:
+        _seccion_evidencia_zeek()
+    with sub4:
         _seccion_ti()

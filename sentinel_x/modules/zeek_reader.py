@@ -49,7 +49,8 @@ def _extraer_campo(evento: dict, ruta_campo: str):
     return valor
 
 
-def _procesar_linea(tipo_log: str, linea: str) -> dict | None:
+def normalizar_linea(tipo_log: str, linea: str) -> dict | None:
+    """Normaliza una línea JSON de un log Zeek admitido, sin efectos laterales."""
     linea = linea.strip()
     if not linea:
         return None
@@ -63,6 +64,10 @@ def _procesar_linea(tipo_log: str, linea: str) -> dict | None:
     for campo in campos:
         registro[campo] = _extraer_campo(evento, campo)
     return registro
+
+
+# Compatibilidad interna para quien ya usara el nombre privado anterior.
+_procesar_linea = normalizar_linea
 
 
 def hilo_watch_zeek() -> None:
@@ -104,7 +109,7 @@ def hilo_watch_zeek() -> None:
                     with open(ruta, "r", encoding="utf-8") as f:
                         f.seek(offset_previo)
                         for linea in f:
-                            registro = _procesar_linea(tipo_log, linea)
+                            registro = normalizar_linea(tipo_log, linea)
                             if registro:
                                 with state.lock_zeek:
                                     state.eventos_zeek.append(registro)
