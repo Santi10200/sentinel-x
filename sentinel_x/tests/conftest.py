@@ -22,6 +22,6 @@ def db():
     database.inicializar_db()
     for tabla in ("casos_historial", "casos", "nist_autoevaluacion", "inventario_red",
                   "flujos_tls", "alertas_ids", "incidentes", "ti_hits", "redes_wifi",
-                  "vulnerabilidades", "cve_cache", "ml_features"):
+                  "vulnerabilidades", "cve_cache", "ml_features", "importaciones_evidencia"):
         database.ejecutar(f"DELETE FROM {tabla}")
     return database
