@@ -42,6 +42,21 @@ COLORES_SEVERIDAD = {"Crítica": "#c62828", "Alta": "#ef6c00", "Media": "#f9a825
 COLORES_ESTADO_NIST = {"Cumple": "#2e7d32", "Parcial": "#f9a825", "No cumple": "#c62828", "Sin datos": "#9e9e9e"}
 
 
+def aplicar_estilo_soc() -> None:
+    """Tokens visuales locales compartidos por las vistas operativas."""
+    st.markdown("""<style>
+    .stApp { background: #08131f; }
+    .soc-kicker { color: #86a8c5; font-size: .82rem; letter-spacing: .09em; text-transform: uppercase; }
+    .soc-hero { background: #0d2032; border: 1px solid #1d3c55; border-radius: 14px; padding: 1.25rem 1.4rem; margin: .3rem 0 1rem; }
+    .soc-hero h2 { margin: .15rem 0; color: #f4f8fc; }
+    .soc-hero p { color: #b8cadb; margin: .35rem 0 0; }
+    .soc-risk { color: #ffbf69; font-size: 2.2rem; font-weight: 700; line-height: 1; }
+    div[data-testid="stMetric"] { background: #0d1b29; border: 1px solid #19354c; border-radius: 12px; padding: .7rem .85rem; }
+    div[data-testid="stMetricLabel"] { color: #a9bfd1; }
+    div[data-testid="stMetricValue"] { color: #f4f8fc; }
+    </style>""", unsafe_allow_html=True)
+
+
 def analisis_actual() -> dict | None:
     """Último resultado de modules.analisis guardado en la sesión, o None."""
     return st.session_state.get("_analisis")
