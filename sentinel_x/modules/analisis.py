@@ -16,7 +16,7 @@ from core import database, state
 from core.config import CONFIG
 from core.logger import get_logger
 from modules import (
-    beaconing, correlation_engine, lateral_movement, mitre_attack, ml_baseline,
+    beaconing, correlation_engine, event_quality, lateral_movement, mitre_attack, ml_baseline,
     nist_csf, postura, respuesta_incidentes, threat_intel, vulnerabilidades,
 )
 
@@ -76,6 +76,15 @@ def ejecutar_analisis() -> dict:
     flujos_tls = state.snapshot(state.flujos_tls, state.lock_flujos_tls)
     eventos_lan = state.snapshot(state.eventos_lan, state.lock_eventos_lan)
     alertas = state.snapshot(state.alertas_ids, state.lock_alertas)
+    eventos_zeek = state.snapshot(state.eventos_zeek, state.lock_zeek)
+    calidad = event_quality.preparar_foto({
+        "tls": flujos_tls, "lan": eventos_lan, "suricata": alertas, "zeek": eventos_zeek,
+    }, ahora=inicio)
+    # Los detectores existentes mantienen su contrato de entrada; esta capa
+    # solo retira telemetría corrupta o repetida antes de analizarlos.
+    flujos_tls = calidad["aceptados"]["tls"]
+    eventos_lan = calidad["aceptados"]["lan"]
+    alertas = calidad["aceptados"]["suricata"]
     inventario = inventario_persistido()
     redes_wifi = redes_wifi_actuales()
 
@@ -95,6 +104,9 @@ def ejecutar_analisis() -> dict:
         "flujos_tls": flujos_tls,
         "eventos_lan": eventos_lan,
         "alertas": alertas,
+        "eventos_zeek": calidad["aceptados"]["zeek"],
+        "eventos_normalizados": calidad["eventos"],
+        "calidad_datos": calidad["resumen"],
         "inventario": inventario,
         "redes_wifi": redes_wifi,
         "df_beacons": df_beacons,
