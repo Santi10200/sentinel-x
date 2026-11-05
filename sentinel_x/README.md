@@ -13,6 +13,7 @@ de SQLite. La falta de tráfico se reporta como atención, no como una caída.
 
 ```
 Captura          -> Scapy (TLS + LAN + Wi-Fi pasivo) · Suricata (tail -F) · Zeek (watch)
+Calidad          -> esquema canónico · validación · deduplicación por fuente · frescura
 Enriquecimiento  -> JA3 completo · OUI/DNS/DHCP/Nmap · Threat Intel · MITRE ATT&CK
 Análisis         -> Beaconing+DGA · Movimiento lateral · Baseline ML · Postura (exposición)
 Correlación      -> Motor que une todo en incidentes con severidad combinada
@@ -159,6 +160,12 @@ python3 -m pytest -q tests
 
 ## Notas de diseño importantes
 
+- **Calidad antes de detección**: cada análisis construye una evidencia
+  canónica de TLS, LAN, Suricata y Zeek. Los eventos inválidos o duplicados
+  dentro de una misma fuente se excluyen de los detectores, mientras que el
+  registro original aceptado se conserva y los eventos equivalentes de fuentes
+  diferentes permanecen separados como corroboración independiente. El
+  resultado incluye `calidad_datos` y `eventos_normalizados` para auditoría.
 - **Locks a nivel de módulo, nunca en `session_state`**: Streamlit
   reconstruye `session_state` de forma impredecible entre reruns; un Lock
   ahí puede quedar huérfano mientras un hilo de fondo sigue referenciando
