@@ -166,6 +166,11 @@ python3 -m pytest -q tests
   registro original aceptado se conserva y los eventos equivalentes de fuentes
   diferentes permanecen separados como corroboración independiente. El
   resultado incluye `calidad_datos` y `eventos_normalizados` para auditoría.
+- **Correlación por episodio**: los hallazgos se agrupan por activo y ventana
+  temporal (15 minutos por defecto). La prioridad solo aumenta cuando hay
+  familias independientes de detección; varias reglas del mismo detector no
+  cuentan como corroboración adicional. Cada incidente muestra confianza y
+  antigüedad para facilitar el triage.
 - **Locks a nivel de módulo, nunca en `session_state`**: Streamlit
   reconstruye `session_state` de forma impredecible entre reruns; un Lock
   ahí puede quedar huérfano mientras un hilo de fondo sigue referenciando
