@@ -16,6 +16,14 @@ def _fecha(ts: float) -> str:
     return datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _antiguedad(segundos: float | None) -> str:
+    if segundos is None:
+        return "sin marca temporal"
+    if segundos < 60:
+        return f"hace {segundos:.0f}s"
+    return f"hace {segundos / 60:.1f} min"
+
+
 def _ciclo_de_vida() -> None:
     columnas = st.columns(len(ri.ESTADOS))
     for col, (estado, csf, descripcion) in zip(columnas, ri.ESTADOS):
@@ -70,6 +78,8 @@ def _incidentes(resultado: dict) -> None:
         st.markdown(f"**Severidad:** {badge_severidad(incidente['severidad'])} · "
                     f"**Prioridad sugerida:** {ri.PRIORIDAD_POR_SEVERIDAD.get(incidente['severidad'])}")
         st.markdown(f"**Fuentes que corroboran:** {', '.join(incidente['fuentes'])}")
+        st.markdown(f"**Confianza de correlación:** {incidente['confianza']}% "
+                    f"({incidente['nivel_confianza']}) · **Frescura:** {_antiguedad(incidente['edad_segundos'])}")
         if incidente["mitre_tecnicas"]:
             st.markdown(f"**Técnicas MITRE ATT&CK:** {', '.join(incidente['mitre_tecnicas'])}")
         st.markdown("**Hallazgos individuales:**")
