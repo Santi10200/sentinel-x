@@ -103,6 +103,7 @@ def detectar(
             "CV": round(cv, 4),
             "Severidad": severidad,
             "Razones": "; ".join(razones),
+            "Último evento": float(grupo["Timestamp"].max()),
         })
 
     if not alertas:

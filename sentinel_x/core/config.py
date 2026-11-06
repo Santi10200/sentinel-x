@@ -50,6 +50,10 @@ CONFIG = {
     "lateral_umbral_fanout": 8,       # hosts distintos contactados / ventana
     "lateral_ventana_seg": 120,       # ventana deslizante para fan-out
 
+    # Dos señales del mismo activo solo se consideran evidencia conjunta si
+    # ocurren en este intervalo; evita unir coincidencias históricas.
+    "correlacion_ventana_seg": int(os.getenv("SENTINEL_CORRELATION_WINDOW", "900")),
+
     # ── Baseline ML ──────────────────────────────────────────────────────
     "ml_ventana_entrenamiento_horas": 24,
     "ml_min_muestras_entrenamiento": 30,
