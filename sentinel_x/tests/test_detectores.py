@@ -62,6 +62,35 @@ def test_correlacion_atribuye_beacon_al_host_local():
     assert inc["severidad"] == "Crítica"  # Alta + 1 fuente adicional
 
 
+def test_correlacion_separa_episodios_fuera_de_ventana():
+    df_beacons = pd.DataFrame([
+        {"IP Local": "10.0.0.7", "IP Destino": "203.0.113.9", "Destino (SNI)": "c2-a",
+         "Severidad": "Media", "Razones": "x", "Último evento": 1_000},
+        {"IP Local": "10.0.0.7", "IP Destino": "203.0.113.10", "Destino (SNI)": "c2-b",
+         "Severidad": "Media", "Razones": "x", "Último evento": 3_000},
+    ])
+    incidentes = correlation_engine.correlacionar(
+        df_beacons, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), [], ahora=3_100, ventana_seg=300,
+    )
+    assert len(incidentes) == 2
+    assert all(i["num_fuentes"] == 1 for i in incidentes)
+
+
+def test_correlacion_no_sube_por_dos_reglas_de_la_misma_familia():
+    df_fanout = pd.DataFrame([{"IP origen": "10.0.0.9", "Hosts contactados": 20,
+                                "Ventana (seg)": 120, "Severidad": "Alta", "MITRE": "T1046",
+                                "Fin ventana": 1_000}])
+    df_puertos = pd.DataFrame([{"IP origen": "10.0.0.9", "IP destino": "10.0.0.10",
+                                 "Servicio": "SMB", "Conexiones": 8, "Severidad": "Alta",
+                                 "MITRE": "T1021.002", "Último evento": 1_010}])
+    incidente = correlation_engine.correlacionar(
+        pd.DataFrame(), df_fanout, df_puertos, pd.DataFrame(), [], ahora=1_020, ventana_seg=300,
+    )[0]
+    assert incidente["num_fuentes"] == 1
+    assert incidente["severidad"] == "Alta"
+    assert incidente["confianza"] == 60
+
+
 def test_ti_dominio_por_sufijo(monkeypatch):
     monkeypatch.setattr(threat_intel, "_dominios_maliciosos", {"malo.com"})
     assert threat_intel.verificar_dominio("x.y.malo.com")
