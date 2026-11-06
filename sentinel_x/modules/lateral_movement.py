@@ -91,6 +91,8 @@ def detectar_fanout(
                 "MITRE": "T1046 – Network Service Discovery",
                 "Táctica": info["tactica"] if info else "Discovery",
                 "Severidad": "Alta" if destinos_unicos >= umbral_hosts * 2 else "Media",
+                "Inicio ventana": float(grupo["Timestamp"].min()),
+                "Fin ventana": float(grupo["Timestamp"].max()),
             })
 
     if not resultados:
@@ -133,6 +135,8 @@ def detectar_puertos_riesgo(eventos: list[dict]) -> pd.DataFrame:
             "Conexiones": len(grupo),
             "MITRE": f"{tecnica_id} – {info['nombre']}" if info else servicio,
             "Severidad": "Media" if len(grupo) < 5 else "Alta",
+            "Primer evento": float(grupo["Timestamp"].min()) if "Timestamp" in grupo else None,
+            "Último evento": float(grupo["Timestamp"].max()) if "Timestamp" in grupo else None,
         })
 
     if not resultados:
