@@ -145,6 +145,8 @@ def resumen_a_dataframe(incidentes: list[dict]) -> pd.DataFrame:
         edad = "Sin marca temporal" if inc["edad_segundos"] is None else f"{inc['edad_segundos']:.0f}s"
         filas.append({
             "IP": inc["ip_principal"], "Severidad": inc["severidad"],
+            "Prioridad": inc.get("prioridad_analista", "Sin contexto"),
+            "Riesgo contextual": f"{inc.get('riesgo_contextual', 0)}/100",
             "Confianza": f"{inc['confianza']}% ({inc['nivel_confianza']})", "Antigüedad": edad,
             "Fuentes que corroboran": inc["num_fuentes"], "Detectado por": ", ".join(inc["fuentes"]),
             "Técnicas MITRE": ", ".join(inc["mitre_tecnicas"]) or "—",

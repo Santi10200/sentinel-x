@@ -17,7 +17,7 @@ from core.config import CONFIG
 from core.logger import get_logger
 from modules import (
     beaconing, correlation_engine, event_quality, lateral_movement, mitre_attack, ml_baseline,
-    nist_csf, postura, respuesta_incidentes, threat_intel, vulnerabilidades,
+    nist_csf, postura, respuesta_incidentes, risk_prioritization, threat_intel, vulnerabilidades,
 )
 
 logger = get_logger("analisis")
@@ -97,6 +97,7 @@ def ejecutar_analisis() -> dict:
         df_beacons, df_fanout, df_puertos, df_ml, list(alertas)[-200:]
     )
     vulns = vulnerabilidades.vulnerabilidades_guardadas()
+    incidentes = risk_prioritization.enriquecer(incidentes, inventario, vulns)
     df_postura = postura.evaluar(inventario, eventos_lan, redes_wifi, vulns)
 
     resultado = {
