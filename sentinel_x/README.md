@@ -171,6 +171,10 @@ python3 -m pytest -q tests
   familias independientes de detección; varias reglas del mismo detector no
   cuentan como corroboración adicional. Cada incidente muestra confianza y
   antigüedad para facilitar el triage.
+- **Priorización contextual**: mantiene la severidad técnica intacta y ordena
+  los incidentes según su corroboración, tipo de activo, servicios expuestos y
+  CVE probables/KEV. Los factores se muestran para que la prioridad sea
+  auditable, no una caja negra.
 - **Locks a nivel de módulo, nunca en `session_state`**: Streamlit
   reconstruye `session_state` de forma impredecible entre reruns; un Lock
   ahí puede quedar huérfano mientras un hilo de fondo sigue referenciando
