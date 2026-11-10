@@ -1,6 +1,6 @@
 import pandas as pd
 
-from modules import beaconing, correlation_engine, lateral_movement, sniffer, threat_intel
+from modules import beaconing, correlation_engine, lateral_movement, risk_prioritization, sniffer, threat_intel
 from modules.wifi_security import parsear_rsn
 
 
@@ -89,6 +89,20 @@ def test_correlacion_no_sube_por_dos_reglas_de_la_misma_familia():
     assert incidente["num_fuentes"] == 1
     assert incidente["severidad"] == "Alta"
     assert incidente["confianza"] == 60
+
+
+def test_priorizacion_contextual_no_modifica_la_severidad_y_destaca_kev():
+    incidente = {"ip_principal": "10.0.0.9", "severidad": "Alta", "confianza": 70, "timestamp": 1_000}
+    resultado = risk_prioritization.enriquecer(
+        [incidente],
+        [{"ip": "10.0.0.9", "tipo": "Servidor", "hostname": "filesrv",
+          "puertos_abiertos": "445/tcp, 22/tcp"}],
+        [{"ip": "10.0.0.9", "cvss": 7.5, "kev": 1, "aplicabilidad": "Probable"}],
+    )[0]
+    assert resultado["severidad"] == "Alta"
+    assert resultado["riesgo_contextual"] == 95
+    assert resultado["prioridad_analista"].startswith("P1")
+    assert "CVE en CISA KEV" in resultado["factores_riesgo"]
 
 
 def test_ti_dominio_por_sufijo(monkeypatch):
