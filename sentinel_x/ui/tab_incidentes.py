@@ -41,7 +41,7 @@ def _incidentes(resultado: dict) -> None:
     m1.metric("Incidentes totales", len(incidentes))
     m2.metric("Críticos", sum(1 for i in incidentes if i["severidad"] == "Crítica"))
     m3.metric("Altos", sum(1 for i in incidentes if i["severidad"] == "Alta"))
-    m4.metric("Corroborados por 2+ fuentes", sum(1 for i in incidentes if i["num_fuentes"] >= 2))
+    m4.metric("Prioridad P1", sum(1 for i in incidentes if i.get("prioridad_analista", "").startswith("P1")))
 
     df_resumen = correlation_engine.resumen_a_dataframe(incidentes)
     g1, g2 = st.columns(2)
@@ -78,6 +78,15 @@ def _incidentes(resultado: dict) -> None:
         st.markdown(f"**Severidad:** {badge_severidad(incidente['severidad'])} · "
                     f"**Prioridad sugerida:** {ri.PRIORIDAD_POR_SEVERIDAD.get(incidente['severidad'])}")
         st.markdown(f"**Fuentes que corroboran:** {', '.join(incidente['fuentes'])}")
+        st.markdown(f"**Prioridad operativa:** {incidente.get('prioridad_analista', 'Sin contexto')} · "
+                    f"**Riesgo contextual:** {incidente.get('riesgo_contextual', 0)}/100")
+        contexto = incidente.get("activo_contexto", {})
+        st.caption(
+            f"Activo: {contexto.get('nombre') or 'sin nombre'} · {contexto.get('tipo', 'Desconocido')} · "
+            f"CVE probables: {contexto.get('vulnerabilidades_probables', 0)} · "
+            f"KEV: {'sí' if contexto.get('kev') else 'no'}"
+        )
+        st.markdown("**Factores de prioridad:** " + "; ".join(incidente.get("factores_riesgo", [])))
         st.markdown(f"**Confianza de correlación:** {incidente['confianza']}% "
                     f"({incidente['nivel_confianza']}) · **Frescura:** {_antiguedad(incidente['edad_segundos'])}")
         if incidente["mitre_tecnicas"]:
